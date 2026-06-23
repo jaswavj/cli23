@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<workspace>
+	<settings>
+		<label>gold</label>
+	</settings>
+	<users>
+		<user>
+			<path>gold.jcu</path>
+		</user>
+	</users>
+	<projects>
+		<project>
+			<path>gold.jcp</path>
+		</project>
+	</projects>
+</workspace>

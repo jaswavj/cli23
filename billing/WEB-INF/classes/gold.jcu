@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<workspace_user>
+	<active_project>
+		<label>gold</label>
+	</active_project>
+	<projects>
+		<project>
+			<label>gold</label>
+			<showfiles>false</showfiles>
+			<folderitem>
+				<path>billing</path>
+			</folderitem>
+			<folderitem>
+				<path>cafeorder</path>
+			</folderitem>
+			<folderitem>
+				<path>cheque</path>
+			</folderitem>
+			<folderitem>
+				<path>gold</path>
+			</folderitem>
+			<folderitem>
+				<path>path</path>
+			</folderitem>
+			<folderitem>
+				<path>print</path>
+			</folderitem>
+			<folderitem>
+				<path>product</path>
+			</folderitem>
+			<folderitem>
+				<path>user</path>
+			</folderitem>
+			<folderitem>
+				<path>util</path>
+			</folderitem>
+		</project>
+	</projects>
+	<open_files>
+		<docitem>
+			<path>billing\billingBean.java</path>
+			<source>true</source>
+			<index>0</index>
+			<active>false</active>
+		</docitem>
+		<docitem>
+			<path>gold\goldBillingBean.java</path>
+			<source>true</source>
+			<index>1</index>
+			<active>true</active>
+		</docitem>
+	</open_files>
+</workspace_user>
