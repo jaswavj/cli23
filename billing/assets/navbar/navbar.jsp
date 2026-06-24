@@ -94,6 +94,10 @@ for (int i = 0; i < vecPer.size(); i++) {
       <i class="fas fa-arrow-right-arrow-left"></i>
       <span>Gold Transaction</span>
     </a>
+    <a href="<%=request.getContextPath()%>/goldTransation/report/page.jsp" class="sidebar-item">
+      <i class="fas fa-chart-column"></i>
+      <span>Gold Transaction Report</span>
+    </a>
     <% } %>
 
     <!-- Permission 2: Gold and Master items as main menu -->

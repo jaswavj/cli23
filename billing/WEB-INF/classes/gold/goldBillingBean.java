@@ -530,6 +530,8 @@ public class goldBillingBean {
         PreparedStatement psBankLedger = null;
         PreparedStatement psTxnLedger = null;
         PreparedStatement psUpdateMasterBal = null;
+        PreparedStatement psGoldStock = null;
+        PreparedStatement psStockCheck = null;
         ResultSet rs = null;
 
         try {
@@ -537,6 +539,31 @@ public class goldBillingBean {
             con.setAutoCommit(false);
 
             Timestamp txnTs = parseTxnTimestamp(billDate, billTime);
+
+            double totalQty = 0.0;
+            for (int i = 0; i < items.size(); i++) {
+                Vector item = (Vector) items.elementAt(i);
+                totalQty += parseD(item.elementAt(1));
+            }
+
+            if (isSale && totalQty > 0) {
+                psStockCheck = con.prepareStatement(
+                    "SELECT COALESCE(stock, 0) AS stock FROM gold_stock WHERE prods_id = ? FOR UPDATE");
+                psStockCheck.setInt(1, 1);
+                rs = psStockCheck.executeQuery();
+                double currentStock = 0.0;
+                if (rs.next()) {
+                    currentStock = rs.getDouble("stock");
+                }
+                rs.close();
+                rs = null;
+                psStockCheck.close();
+                psStockCheck = null;
+
+                if (totalQty > currentStock) {
+                    throw new Exception("Insufficient stock. Current stock is " + String.format("%.3f", currentStock));
+                }
+            }
 
             // 1) Insert master
             psMaster = con.prepareStatement(
@@ -606,8 +633,15 @@ public class goldBillingBean {
                 psStock.addBatch();
             }
 
-            psDetails.executeBatch();
-            psStock.executeBatch();
+            int[] detailsBatch = psDetails.executeBatch();
+            if (detailsBatch == null || detailsBatch.length == 0) {
+                throw new Exception("Failed to insert transaction details");
+            }
+
+            int[] stockBatch = psStock.executeBatch();
+            if (stockBatch == null || stockBatch.length == 0) {
+                throw new Exception("Failed to insert transaction stock rows");
+            }
 
             // 4) Insert payments
             psPayment = con.prepareStatement(
@@ -619,6 +653,8 @@ public class goldBillingBean {
                 "(bill_id, bank_id, in_amount, out_amount, notes, user_id, date_time) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?)");
 
+            int paymentRowCount = 0;
+            int bankLedgerRowCount = 0;
             for (int i = 0; i < payments.size(); i++) {
                 Vector pay = (Vector) payments.elementAt(i);
                 String paymentMode = String.valueOf(pay.elementAt(0));
@@ -635,6 +671,7 @@ public class goldBillingBean {
                 else                psPayment.setNull(3, Types.INTEGER);
                 psPayment.setDouble(4, amount);
                 psPayment.addBatch();
+                paymentRowCount++;
 
                 if (paymentBank > 0) {
                     double inAmount = isSale ? amount : 0.0;
@@ -647,38 +684,80 @@ public class goldBillingBean {
                     psBankLedger.setInt(6, userId);
                     psBankLedger.setTimestamp(7, txnTs);
                     psBankLedger.addBatch();
+                    bankLedgerRowCount++;
                 }
             }
 
-            psPayment.executeBatch();
-            psBankLedger.executeBatch();
+            if (paymentRowCount == 0) {
+                throw new Exception("Failed to insert transaction payments");
+            }
+            int[] paymentBatch = psPayment.executeBatch();
+            if (paymentBatch == null || paymentBatch.length != paymentRowCount) {
+                throw new Exception("Failed to insert all payment rows");
+            }
 
-            // 6) Insert gold transaction ledger summary row
+            if (bankLedgerRowCount > 0) {
+                int[] bankBatch = psBankLedger.executeBatch();
+                if (bankBatch == null || bankBatch.length != bankLedgerRowCount) {
+                    throw new Exception("Failed to insert all bank ledger rows");
+                }
+            }
+
+            // 6) Update gold_stock in the same transaction (prods_id = 1)
+            double deltaQty = isPurchase ? totalQty : (isSale ? -totalQty : 0.0);
+            if (deltaQty != 0.0) {
+                psGoldStock = con.prepareStatement(
+                    "UPDATE gold_stock SET stock = COALESCE(stock, 0) + ? WHERE prods_id = ?");
+                psGoldStock.setDouble(1, deltaQty);
+                psGoldStock.setInt(2, 1);
+                int updated = psGoldStock.executeUpdate();
+                psGoldStock.close();
+                psGoldStock = null;
+
+                if (updated == 0) {
+                    psGoldStock = con.prepareStatement(
+                        "INSERT INTO gold_stock (prods_id, stock) VALUES (?, ?)");
+                    psGoldStock.setInt(1, 1);
+                    psGoldStock.setDouble(2, deltaQty);
+                    if (psGoldStock.executeUpdate() <= 0) {
+                        throw new Exception("Failed to insert gold stock row");
+                    }
+                    psGoldStock.close();
+                    psGoldStock = null;
+                }
+            }
+
+            // 7) Insert gold transaction ledger summary row
             psTxnLedger = con.prepareStatement(
                 "INSERT INTO gold_transaction_ledger " +
-                "(bill_id, customer_id, in_amount, out_amount, notes, date_time, user_id, is_sale, is_purchase, is_cancelled) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)");
+                "(bill_id, customer_id, bill_amount, in_amount, out_amount, notes, date_time, user_id, is_sale, is_purchase, is_cancelled) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)");
 
             psTxnLedger.setInt(1, billId);
             if (customerId > 0) psTxnLedger.setInt(2, customerId);
             else                psTxnLedger.setNull(2, Types.INTEGER);
-            psTxnLedger.setDouble(3, isPurchase ? total : 0.0);
-            psTxnLedger.setDouble(4, isSale ? total : 0.0);
-            psTxnLedger.setString(5, "Gold transaction #" + billId + " (" + (isSale ? "SALE" : "PURCHASE") + ")");
-            psTxnLedger.setTimestamp(6, txnTs);
-            psTxnLedger.setInt(7, userId);
-            psTxnLedger.setInt(8, isSale ? 1 : 0);
-            psTxnLedger.setInt(9, isPurchase ? 1 : 0);
-            psTxnLedger.executeUpdate();
+            psTxnLedger.setDouble(3, total);
+            psTxnLedger.setDouble(4, isSale ? paid : 0.0);
+            psTxnLedger.setDouble(5, isPurchase ? paid : 0.0);
+            psTxnLedger.setString(6, "Gold transaction #" + billId + " (" + (isSale ? "SALE" : "PURCHASE") + ")");
+            psTxnLedger.setTimestamp(7, txnTs);
+            psTxnLedger.setInt(8, userId);
+            psTxnLedger.setInt(9, isSale ? 1 : 0);
+            psTxnLedger.setInt(10, isPurchase ? 1 : 0);
+            if (psTxnLedger.executeUpdate() <= 0) {
+                throw new Exception("Failed to insert gold transaction ledger");
+            }
 
-            // 7) Update customer_account and compute current_balance
+            // 8) Update customer_account and compute current_balance
             double currentBalance = updateCustomerAccountForTransaction(con, customerId, balance, isSale, isPurchase);
 
             psUpdateMasterBal = con.prepareStatement(
                 "UPDATE gold_trasaction SET current_balance = ? WHERE id = ?");
             psUpdateMasterBal.setDouble(1, currentBalance);
             psUpdateMasterBal.setInt(2, billId);
-            psUpdateMasterBal.executeUpdate();
+            if (psUpdateMasterBal.executeUpdate() <= 0) {
+                throw new Exception("Failed to update transaction current balance");
+            }
 
             con.commit();
             return billId;
@@ -693,6 +772,8 @@ public class goldBillingBean {
             close(null, psPayment, null);
             close(null, psStock, null);
             close(null, psBankLedger, null);
+            close(null, psGoldStock, null);
+            close(null, psStockCheck, null);
             close(null, psTxnLedger, null);
             close(null, psUpdateMasterBal, con);
         }
@@ -785,9 +866,33 @@ public class goldBillingBean {
 
         if (needsUpdate) {
             if (isSale) {
-                due = due + balance;
+                double remaining = balance;
+                if (advance > 0) {
+                    if (remaining <= advance) {
+                        advance = advance - remaining;
+                        remaining = 0;
+                    } else {
+                        remaining = remaining - advance;
+                        advance = 0;
+                    }
+                }
+                if (remaining > 0) {
+                    due = due + remaining;
+                }
             } else if (isPurchase) {
-                advance = advance + balance;
+                double remaining = balance;
+                if (due > 0) {
+                    if (remaining <= due) {
+                        due = due - remaining;
+                        remaining = 0;
+                    } else {
+                        remaining = remaining - due;
+                        due = 0;
+                    }
+                }
+                if (remaining > 0) {
+                    advance = advance + remaining;
+                }
             }
 
             PreparedStatement psUpd = null;
@@ -807,6 +912,368 @@ public class goldBillingBean {
         }
 
         return due - advance;
+    }
+
+    /**
+     * Get current gold stock for a product id from gold_stock.
+     */
+    public double getGoldStockByProductId(int prodsId) throws Exception {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        try {
+            con = getConn();
+            ps = con.prepareStatement(
+                "SELECT COALESCE(stock, 0) AS stock FROM gold_stock WHERE prods_id = ? LIMIT 1");
+            ps.setInt(1, prodsId);
+            rs = ps.executeQuery();
+            if (rs.next()) {
+                return rs.getDouble("stock");
+            }
+            return 0.0;
+        } finally {
+            close(rs, ps, con);
+        }
+    }
+
+    /**
+     * Summary for report cards without date filter.
+     * Returns Vector: [currentStock, totalAdvanceCredit, totalDueFromCustomers]
+     */
+    public Vector getGoldTransactionSummaryCards() throws Exception {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        Vector out = new Vector();
+
+        double currentStock = 0.0;
+        double totalAdvance = 0.0;
+        double totalDue = 0.0;
+
+        try {
+            con = getConn();
+
+            ps = con.prepareStatement(
+                "SELECT COALESCE(stock, 0) AS stock FROM gold_stock WHERE prods_id = ? LIMIT 1");
+            ps.setInt(1, 1);
+            rs = ps.executeQuery();
+            if (rs.next()) {
+                currentStock = rs.getDouble("stock");
+            }
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            try {
+                ps = con.prepareStatement(
+                    "SELECT COALESCE(SUM(advance), 0) AS total_advance, COALESCE(SUM(due), 0) AS total_due FROM customer_account");
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    totalAdvance = rs.getDouble("total_advance");
+                    totalDue = rs.getDouble("total_due");
+                }
+            } catch (SQLException dueColEx) {
+                close(rs, ps, null);
+                rs = null;
+                ps = con.prepareStatement(
+                    "SELECT COALESCE(SUM(advance), 0) AS total_advance, COALESCE(SUM(balance), 0) AS total_due FROM customer_account");
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    totalAdvance = rs.getDouble("total_advance");
+                    totalDue = rs.getDouble("total_due");
+                }
+            }
+
+            out.addElement(String.valueOf(currentStock));
+            out.addElement(String.valueOf(totalAdvance));
+            out.addElement(String.valueOf(totalDue));
+            return out;
+        } finally {
+            close(rs, ps, con);
+        }
+    }
+
+    /**
+     * Settle customer credit by collecting from customer or paying to customer.
+     * actionMode values: "collect" or "pay".
+     * Returns Vector: [billId, accountCredit, due, advance]
+     */
+    public Vector settleCustomerCredit(
+            int customerId,
+            int userId,
+            double amount,
+            String actionMode,
+            String billDate,
+            String billTime,
+            Vector payments) throws Exception {
+
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        PreparedStatement psPayment = null;
+        PreparedStatement psLedger = null;
+
+        try {
+            if (customerId <= 0) {
+                throw new Exception("Invalid customer");
+            }
+            if (amount <= 0) {
+                throw new Exception("Amount should be greater than zero");
+            }
+
+            String mode = actionMode == null ? "" : actionMode.trim().toLowerCase();
+            if (!"collect".equals(mode) && !"pay".equals(mode)) {
+                throw new Exception("Invalid action mode");
+            }
+
+            con = getConn();
+            con.setAutoCommit(false);
+
+            boolean hasDueColumn = true;
+            double due = 0.0;
+            double advance = 0.0;
+            boolean rowExists = false;
+
+            try {
+                ps = con.prepareStatement("SELECT due, advance FROM customer_account WHERE customer_id=? FOR UPDATE");
+                ps.setInt(1, customerId);
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    due = rs.getDouble(1);
+                    advance = rs.getDouble(2);
+                    rowExists = true;
+                }
+            } catch (SQLException dueEx) {
+                hasDueColumn = false;
+                close(rs, ps, null);
+                rs = null;
+                ps = con.prepareStatement("SELECT balance, advance FROM customer_account WHERE customer_id=? FOR UPDATE");
+                ps.setInt(1, customerId);
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    due = rs.getDouble(1);
+                    advance = rs.getDouble(2);
+                    rowExists = true;
+                }
+            }
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            if (!rowExists) {
+                if (hasDueColumn) {
+                    ps = con.prepareStatement("INSERT INTO customer_account (customer_id, due, advance) VALUES (?, 0, 0)");
+                } else {
+                    ps = con.prepareStatement("INSERT INTO customer_account (customer_id, balance, advance) VALUES (?, 0, 0)");
+                }
+                ps.setInt(1, customerId);
+                ps.executeUpdate();
+                close(null, ps, null);
+                ps = null;
+                due = 0.0;
+                advance = 0.0;
+            }
+
+            double accountCredit = due - advance;
+            if ("collect".equals(mode) && accountCredit <= 0) {
+                throw new Exception("Customer has no payable due to collect");
+            }
+            if ("pay".equals(mode) && accountCredit >= 0) {
+                throw new Exception("No payable amount from your side");
+            }
+
+            double maxSettle = Math.abs(accountCredit);
+            if (amount - maxSettle > 0.01) {
+                throw new Exception("Settlement amount should not exceed current balance");
+            }
+
+            if (payments == null || payments.size() == 0) {
+                throw new Exception("Select at least one payment option");
+            }
+
+            double paidSum = 0.0;
+            for (int i = 0; i < payments.size(); i++) {
+                Vector pay = (Vector) payments.elementAt(i);
+                String payMode = String.valueOf(pay.elementAt(0)).trim().toLowerCase();
+                int payBank = 0;
+                try { payBank = Integer.parseInt(String.valueOf(pay.elementAt(1))); } catch (Exception ex) { }
+                double payAmount = parseD(pay.elementAt(2));
+
+                if (payAmount <= 0) {
+                    continue;
+                }
+
+                if ("gpay".equals(payMode) && payBank <= 0) {
+                    throw new Exception("Bank is required for GPay payment");
+                }
+
+                paidSum += payAmount;
+            }
+
+            if (paidSum <= 0) {
+                throw new Exception("Enter payment amount");
+            }
+
+            if (Math.abs(paidSum - amount) > 0.01) {
+                throw new Exception("Payment total should match settlement amount");
+            }
+
+            if ("collect".equals(mode)) {
+                if (amount <= due) {
+                    due -= amount;
+                } else {
+                    double extra = amount - due;
+                    due = 0.0;
+                    advance += extra;
+                }
+            } else {
+                if (amount <= advance) {
+                    advance -= amount;
+                } else {
+                    double extra = amount - advance;
+                    advance = 0.0;
+                    due += extra;
+                }
+            }
+
+            accountCredit = due - advance;
+            if (hasDueColumn) {
+                ps = con.prepareStatement("UPDATE customer_account SET due=?, advance=? WHERE customer_id=?");
+            } else {
+                ps = con.prepareStatement("UPDATE customer_account SET balance=?, advance=? WHERE customer_id=?");
+            }
+            ps.setDouble(1, due);
+            ps.setDouble(2, advance);
+            ps.setInt(3, customerId);
+            if (ps.executeUpdate() <= 0) {
+                throw new Exception("Failed to update customer account");
+            }
+            close(null, ps, null);
+            ps = null;
+
+            if (billDate == null || billDate.trim().length() == 0) {
+                billDate = new java.sql.Date(System.currentTimeMillis()).toString();
+            }
+            if (billTime == null || billTime.trim().length() == 0) {
+                billTime = new java.sql.Time(System.currentTimeMillis()).toString();
+            }
+
+            int payOrCollect = "pay".equals(mode) ? 1 : 2;
+
+            int billId = 0;
+            psPayment = con.prepareStatement(
+                "INSERT INTO gold_trasaction_payment (bill_id, customer_id, user_id, payment_mode, payment_bank, amount, bill_date, bill_time, date_time, is_balance_collection, is_pay_or_collect) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 1, ?)");
+
+            for (int i = 0; i < payments.size(); i++) {
+                Vector pay = (Vector) payments.elementAt(i);
+                String payMode = String.valueOf(pay.elementAt(0)).trim().toLowerCase();
+                int payBank = 0;
+                try { payBank = Integer.parseInt(String.valueOf(pay.elementAt(1))); } catch (Exception ex) { }
+                double payAmount = parseD(pay.elementAt(2));
+
+                if (payAmount <= 0) {
+                    continue;
+                }
+
+                psPayment.setNull(1, Types.INTEGER);
+                psPayment.setInt(2, customerId);
+                psPayment.setInt(3, userId);
+                psPayment.setString(4, payMode);
+                if (payBank > 0) psPayment.setInt(5, payBank);
+                else             psPayment.setNull(5, Types.INTEGER);
+                psPayment.setDouble(6, payAmount);
+                psPayment.setString(7, billDate);
+                psPayment.setString(8, billTime);
+                psPayment.setInt(9, payOrCollect);
+                psPayment.addBatch();
+            }
+
+            int[] paymentBatch = psPayment.executeBatch();
+            if (paymentBatch == null || paymentBatch.length == 0) {
+                throw new Exception("Failed to insert payment settlement rows");
+            }
+            close(null, psPayment, null);
+            psPayment = null;
+
+            psLedger = con.prepareStatement(
+                "INSERT INTO gold_transaction_ledger " +
+                "(bill_id, customer_id, bill_amount, in_amount, out_amount, notes, date_time, user_id, is_sale, is_purchase, is_cancelled, is_balance_collection, is_pay_or_collect) " +
+                "VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, 0, 0, 0, 1, ?)");
+            psLedger.setNull(1, Types.INTEGER);
+            psLedger.setInt(2, customerId);
+            psLedger.setDouble(3, amount);
+            psLedger.setDouble(4, "collect".equals(mode) ? amount : 0.0);
+            psLedger.setDouble(5, "pay".equals(mode) ? amount : 0.0);
+            psLedger.setString(6, "Credit settlement (" + mode.toUpperCase() + ")");
+            psLedger.setInt(7, userId);
+            psLedger.setInt(8, payOrCollect);
+            if (psLedger.executeUpdate() <= 0) {
+                throw new Exception("Failed to insert transaction ledger settlement row");
+            }
+
+            con.commit();
+
+            Vector out = new Vector();
+            out.addElement(String.valueOf(billId));
+            out.addElement(String.valueOf(accountCredit));
+            out.addElement(String.valueOf(due));
+            out.addElement(String.valueOf(advance));
+            return out;
+        } catch (Exception e) {
+            if (con != null) {
+                try { con.rollback(); } catch (Exception ex) { }
+            }
+            throw e;
+        } finally {
+            close(rs, ps, null);
+            close(null, psPayment, null);
+            close(null, psLedger, con);
+        }
+    }
+
+    /**
+     * Returns customer account status.
+     * Vector: [due, advance, netCredit]
+     * netCredit = due - advance
+     */
+    public Vector getCustomerCreditStatus(int customerId) throws Exception {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        Vector out = new Vector();
+
+        double due = 0.0;
+        double advance = 0.0;
+
+        try {
+            con = getConn();
+            try {
+                ps = con.prepareStatement("SELECT COALESCE(due,0) AS due_amt, COALESCE(advance,0) AS adv_amt FROM customer_account WHERE customer_id=? LIMIT 1");
+                ps.setInt(1, customerId);
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    due = rs.getDouble("due_amt");
+                    advance = rs.getDouble("adv_amt");
+                }
+            } catch (SQLException dueColEx) {
+                close(rs, ps, null);
+                rs = null;
+                ps = con.prepareStatement("SELECT COALESCE(balance,0) AS due_amt, COALESCE(advance,0) AS adv_amt FROM customer_account WHERE customer_id=? LIMIT 1");
+                ps.setInt(1, customerId);
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    due = rs.getDouble("due_amt");
+                    advance = rs.getDouble("adv_amt");
+                }
+            }
+
+            out.addElement(String.valueOf(due));
+            out.addElement(String.valueOf(advance));
+            out.addElement(String.valueOf(due - advance));
+            return out;
+        } finally {
+            close(rs, ps, con);
+        }
     }
 
     // ═══════════════════════════════════════════════════

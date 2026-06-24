@@ -65,8 +65,11 @@
             payments
         );
 
+        double currentStock = goldBean.getGoldStockByProductId(1);
+
         resp.put("status", "ok");
         resp.put("bill_id", billId);
+        resp.put("current_stock", currentStock);
         resp.put("msg", "Transaction saved successfully");
     } catch (Exception e) {
         e.printStackTrace();

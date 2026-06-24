@@ -84,6 +84,29 @@
             color: var(--gt-primary);
         }
 
+        .gt-stock-highlight {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: linear-gradient(135deg, #fff6dc, #ffe49a);
+            border: 1px solid #e6c772;
+            color: #5f4a13;
+            border-radius: 999px;
+            padding: 6px 12px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+        }
+
+        .gt-stock-value {
+            background: rgba(255, 255, 255, 0.8);
+            border-radius: 999px;
+            padding: 2px 8px;
+            min-width: 78px;
+            text-align: right;
+            color: #3f3410;
+        }
+
         .gt-form-label {
             font-size: 0.74rem;
             text-transform: uppercase;
@@ -245,6 +268,33 @@
             margin-top: 3px;
         }
 
+        .gt-credit-indicator {
+            margin-top: 10px;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 0.84rem;
+            font-weight: 700;
+            display: none;
+        }
+
+        .gt-credit-indicator.is-due {
+            background: #fff2f3;
+            border: 1px solid #f3c2c8;
+            color: #b42335;
+        }
+
+        .gt-credit-indicator.is-advance {
+            background: #effaf3;
+            border: 1px solid #b9e5c8;
+            color: #1e7b3d;
+        }
+
+        .gt-credit-indicator.is-clear {
+            background: #f4f8f7;
+            border: 1px solid #d7e2e0;
+            color: #4d6363;
+        }
+
         .gt-action-bar {
             display: flex;
             gap: 10px;
@@ -265,6 +315,12 @@
         .gt-btn-save {
             color: #173737;
             background: linear-gradient(135deg, #d8b24a, #f1ce70);
+        }
+
+        .gt-btn-soft-disabled {
+            opacity: 0.55;
+            filter: grayscale(0.25);
+            cursor: not-allowed;
         }
 
         .gt-btn-reset {
@@ -361,6 +417,11 @@
     <div class="gt-card">
         <div class="gt-title">
             <h6><i class="fa-solid fa-user-group me-2"></i>Transaction and Customer</h6>
+            <div class="gt-stock-highlight" title="Current stock for Product ID 1">
+                <i class="fa-solid fa-coins"></i>
+                Current Stock
+                <span class="gt-stock-value" id="currentGoldStock">0.000</span>
+            </div>
         </div>
         <div class="row g-3">
             <div class="col-12 col-md-4">
@@ -402,6 +463,10 @@
 
             <div class="col-12 col-md-2 d-flex align-items-end">
                 <button type="button" id="btnClearCustomer" class="gt-btn gt-btn-reset w-100">Clear</button>
+            </div>
+
+            <div class="col-12">
+                <div id="customerCreditIndicator" class="gt-credit-indicator"></div>
             </div>
         </div>
     </div>
@@ -479,6 +544,7 @@
     </div>
 
     <div class="gt-action-bar">
+        <button type="button" class="gt-btn gt-btn-reset" id="btnOpenReport"><i class="fa-solid fa-chart-column me-1"></i>Report</button>
         <button type="button" class="gt-btn gt-btn-reset" id="btnResetAll"><i class="fa-solid fa-rotate-left me-1"></i>Reset</button>
         <button type="button" class="gt-btn gt-btn-save" id="btnSave"><i class="fa-solid fa-floppy-disk me-1"></i>Save Transaction</button>
     </div>
@@ -512,6 +578,9 @@
         balanceAmount: document.getElementById("balanceAmount"),
         paidTotal: document.getElementById("paidTotal"),
         remainingAmount: document.getElementById("remainingAmount"),
+        customerCreditIndicator: document.getElementById("customerCreditIndicator"),
+        currentGoldStock: document.getElementById("currentGoldStock"),
+        btnOpenReport: document.getElementById("btnOpenReport"),
         btnSave: document.getElementById("btnSave"),
         btnResetAll: document.getElementById("btnResetAll")
     };
@@ -540,6 +609,38 @@
 
     function money(v) {
         return parseNumber(v).toFixed(2);
+    }
+
+    function weight(v) {
+        return parseNumber(v).toFixed(3);
+    }
+
+    function getSaleQty() {
+        return parseNumber(el.totalQty.textContent);
+    }
+
+    function getCurrentStockQty() {
+        return parseNumber(el.currentGoldStock.textContent);
+    }
+
+    function isSaleStockExceeded() {
+        if (el.txnType.value !== "sale") {
+            return false;
+        }
+        return getSaleQty() > getCurrentStockQty();
+    }
+
+    function updateSaveStockState() {
+        var blocked = isSaleStockExceeded();
+        if (blocked) {
+            el.btnSave.dataset.stockBlocked = "1";
+            el.btnSave.classList.add("gt-btn-soft-disabled");
+            el.btnSave.title = "Sale qty exceeds current stock";
+        } else {
+            delete el.btnSave.dataset.stockBlocked;
+            el.btnSave.classList.remove("gt-btn-soft-disabled");
+            el.btnSave.title = "";
+        }
     }
 
     function clearInvalidState() {
@@ -609,6 +710,7 @@
         el.totalQty.textContent = totalQty.toFixed(3);
         el.grandTotal.textContent = money(grandTotal);
         refreshPaymentSummary();
+        updateSaveStockState();
     }
 
     function refreshPaymentModeUI() {
@@ -660,6 +762,69 @@
             });
     }
 
+    function updateCurrentStockUI(stock) {
+        el.currentGoldStock.textContent = weight(stock);
+        updateSaveStockState();
+    }
+
+    function clearCustomerCreditUI() {
+        el.customerCreditIndicator.style.display = "none";
+        el.customerCreditIndicator.classList.remove("is-due", "is-advance", "is-clear");
+        el.customerCreditIndicator.textContent = "";
+    }
+
+    function updateCustomerCreditUI(data) {
+        var due = parseNumber(data && data.due);
+        var advance = parseNumber(data && data.advance);
+        el.customerCreditIndicator.classList.remove("is-due", "is-advance", "is-clear");
+
+        if (due > 0) {
+            el.customerCreditIndicator.classList.add("is-due");
+            el.customerCreditIndicator.textContent = "Due: " + money(due);
+        } else if (advance > 0) {
+            el.customerCreditIndicator.classList.add("is-advance");
+            el.customerCreditIndicator.textContent = "Advance: " + money(advance);
+        } else {
+            el.customerCreditIndicator.classList.add("is-clear");
+            el.customerCreditIndicator.textContent = "No Due / No Advance";
+        }
+
+        el.customerCreditIndicator.style.display = "block";
+    }
+
+    function loadCustomerCredit(customerId) {
+        if (!customerId || parseInt(customerId, 10) <= 0) {
+            clearCustomerCreditUI();
+            return;
+        }
+
+        fetch(getCtx() + "/goldTransation/goldTrans/getCustomerCredit.jsp?customerId=" + encodeURIComponent(customerId))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data && data.success) {
+                    updateCustomerCreditUI(data);
+                } else {
+                    clearCustomerCreditUI();
+                }
+            })
+            .catch(function() {
+                clearCustomerCreditUI();
+            });
+    }
+
+    function loadCurrentStock() {
+        fetch(getCtx() + "/goldTransation/goldTrans/getCurrentStock.jsp")
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data && data.success) {
+                    updateCurrentStockUI(data.stock);
+                }
+            })
+            .catch(function() {
+                updateCurrentStockUI(0);
+            });
+    }
+
     function removeCustomerDropdown(type) {
         var oldNode = document.getElementById("gtCustDropdown_" + type);
         if (oldNode) {
@@ -696,6 +861,7 @@
         el.customerPhone.value = customer.phone && customer.phone !== "-" ? customer.phone : "";
         removeCustomerDropdown("name");
         removeCustomerDropdown("phone");
+        loadCustomerCredit(el.customerId.value);
     }
 
     function queryCustomerByName() {
@@ -872,6 +1038,7 @@
         el.customerId.value = "0";
         el.customerName.value = "";
         el.customerPhone.value = "";
+        clearCustomerCreditUI();
         el.itemsBody.innerHTML = "";
         rowCount = 0;
         el.itemsBody.appendChild(createRow());
@@ -888,16 +1055,22 @@
         setDateTimeDefaults();
         refreshTotals();
         clearInvalidState();
+        updateSaveStockState();
     }
 
     el.btnOpenCustomer.addEventListener("click", function() {
         window.open(getCtx() + "/product/master/customer/page.jsp", "_blank", "width=980,height=680");
     });
 
+    el.btnOpenReport.addEventListener("click", function() {
+        window.open(getCtx() + "/goldTransation/report/page.jsp", "_blank");
+    });
+
     el.btnClearCustomer.addEventListener("click", function() {
         el.customerId.value = "0";
         el.customerName.value = "";
         el.customerPhone.value = "";
+        clearCustomerCreditUI();
         removeCustomerDropdown("name");
         removeCustomerDropdown("phone");
     });
@@ -910,6 +1083,7 @@
 
     el.modeCash.addEventListener("change", refreshPaymentModeUI);
     el.modeGpay.addEventListener("change", refreshPaymentModeUI);
+    el.txnType.addEventListener("change", updateSaveStockState);
 
     [el.cashAmount, el.gpayAmount].forEach(function(node) {
         node.addEventListener("input", refreshPaymentSummary);
@@ -932,6 +1106,16 @@
     });
 
     el.btnSave.addEventListener("click", function() {
+        if (el.btnSave.dataset.stockBlocked === "1") {
+            Swal.fire({
+                icon: "warning",
+                title: "Insufficient Stock",
+                text: "Sale quantity cannot be greater than current stock.",
+                confirmButtonColor: "#1f5a58"
+            });
+            return;
+        }
+
         if (!validateForm()) {
             return;
         }
@@ -954,6 +1138,11 @@
                     text: "Transaction #" + data.bill_id + " saved successfully.",
                     confirmButtonColor: "#1f5a58"
                 }).then(function() {
+                    if (typeof data.current_stock !== "undefined") {
+                        updateCurrentStockUI(data.current_stock);
+                    } else {
+                        loadCurrentStock();
+                    }
                     resetForm();
                 });
             } else {
@@ -995,9 +1184,11 @@
     setDateTimeDefaults();
     setInterval(updateTime, 1000);
     loadBanks();
+    loadCurrentStock();
     el.itemsBody.appendChild(createRow());
     refreshPaymentModeUI();
     refreshTotals();
+    updateSaveStockState();
 })();
 </script>
 
