@@ -101,26 +101,11 @@ for (int i = 0; i < vecPer.size(); i++) {
     <% } %>
 
     <!-- Permission 2: Gold and Master items as main menu -->
-    <% if (permissions.contains(2)) { %>
-    <a href="<%=request.getContextPath()%>/gold/goldBill/page.jsp" class="sidebar-item">
-      <i class="fas fa-coins"></i>
-      <span>Gold Buy Entry</span>
-    </a>
-    <% } %>
+    
 
-    <% if (permissions.contains(2)) { %>
-    <a href="<%=request.getContextPath()%>/gold/report/billReport.jsp" class="sidebar-item">
-      <i class="fas fa-file-invoice"></i>
-      <span>Gold Bill Report</span>
-    </a>
-    <% } %>
+   
 
-    <% if (permissions.contains(2)) { %>
-    <a href="<%=request.getContextPath()%>/gold/report/ledgerReport.jsp" class="sidebar-item">
-      <i class="fas fa-book"></i>
-      <span>Gold Ledger Report</span>
-    </a>
-    <% } %>
+    
 
     <% if (permissions.contains(2)) { %>
     <a href="<%=request.getContextPath()%>/product/master/customer/page.jsp" class="sidebar-item">
@@ -129,26 +114,20 @@ for (int i = 0; i < vecPer.size(); i++) {
     </a>
     <% } %>
 
-    <!-- 5: Expense items as main menu -->
-    <% if (permissions.contains(12)) { %>
-    <a href="<%=request.getContextPath()%>/expense/expenseType/expenseType.jsp" class="sidebar-item">
-      <i class="fas fa-tags"></i>
-      <span>Expense Type</span>
-    </a>
-    <% } %>
-
-    <% if (permissions.contains(12)) { %>
-    <a href="<%=request.getContextPath()%>/expense/expenseEntry/page.jsp" class="sidebar-item">
-      <i class="fas fa-receipt"></i>
-      <span>Expense Entry</span>
-    </a>
-    <% } %>
-
-    <% if (permissions.contains(12)) { %>
-    <a href="<%=request.getContextPath()%>/expense/expenseReport/page.jsp" class="sidebar-item">
-      <i class="fas fa-chart-line"></i>
-      <span>Expense Report</span>
-    </a>
+    <!-- Expense menu under permission 2 -->
+    <% if (permissions.contains(2)) { %>
+    <div class="sidebar-dropdown">
+      <a href="#" class="sidebar-item" data-bs-toggle="collapse" data-bs-target="#expenseMenu">
+        <i class="fas fa-wallet"></i>
+        <span>Expense</span>
+        <i class="fas fa-chevron-down ms-auto"></i>
+      </a>
+      <div class="collapse sidebar-submenu" id="expenseMenu">
+        <a href="<%=request.getContextPath()%>/expense/expenseType/expenseType.jsp" class="sidebar-subitem">Expense Type</a>
+        <a href="<%=request.getContextPath()%>/expense/expenseEntry/page.jsp" class="sidebar-subitem">Expense Entry</a>
+        <a href="<%=request.getContextPath()%>/expense/expenseReport/page.jsp" class="sidebar-subitem">Expense Report</a>
+      </div>
+    </div>
     <% } %>
 
     <!-- 6: Admin menu with dropdown (includes User Management + Company Details) -->

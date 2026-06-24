@@ -150,6 +150,25 @@
             width: 100%;
         }
 
+        .gr-icon-btn {
+            border: 1px solid #d1ddd9;
+            border-radius: 10px;
+            height: 42px;
+            width: 42px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            background: #ffffff;
+            color: var(--gr-primary);
+            font-size: 1rem;
+            box-shadow: 0 2px 8px rgba(20, 58, 58, 0.08);
+        }
+
+        .gr-icon-btn:hover {
+            border-color: #bacbc6;
+            background: #f7fbfa;
+        }
+
         .gr-meta {
             color: #4c6262;
             font-size: 0.84rem;
@@ -343,14 +362,14 @@
                 <div class="gr-kpi-note">TM</div>
             </div>
             <div class="gr-kpi gr-kpi-credit">
-                <div class="gr-kpi-label">Total Credit You Owe Customers</div>
+                <div class="gr-kpi-label">Supplier balance</div>
                 <div class="gr-kpi-value" id="cardTotalCredit">0.00</div>
-                <div class="gr-kpi-note">Based on customer advances</div>
+                <div class="gr-kpi-note">Based on supplier Purchase bills</div>
             </div>
             <div class="gr-kpi gr-kpi-due">
-                <div class="gr-kpi-label">Total Amount Customers Owe You</div>
+                <div class="gr-kpi-label">Customer Balance</div>
                 <div class="gr-kpi-value" id="cardCustomerDue">0.00</div>
-                <div class="gr-kpi-note">Based on customer dues</div>
+                <div class="gr-kpi-note">Based on customer bill dues</div>
             </div>
         </div>
     </div>
@@ -366,10 +385,15 @@
                 <label class="gr-form-label">To Date</label>
                 <input id="toDate" type="date" class="gr-input">
             </div>
-            <div class="col-12 col-md-3 col-lg-2">
+            <div class="col-8 col-md-3 col-lg-2">
                 <button id="btnLoad" type="button" class="gr-btn">Load Report</button>
             </div>
-            <div class="col-12 col-md-9 col-lg-4">
+            <div class="col-4 col-md-1 col-lg-1">
+                <button id="btnOpeningBalance" type="button" class="gr-icon-btn" title="Enter Opening Balance">
+                    <i class="fa-solid fa-wallet"></i>
+                </button>
+            </div>
+            <div class="col-12 col-md-8 col-lg-3">
                 <div class="gr-meta" id="reportMeta">Credit list loads without date filter.</div>
             </div>
         </div>
@@ -381,7 +405,7 @@
             <button type="button" class="gr-tab" data-type="transaction">Transaction</button>
             <button type="button" class="gr-tab" data-type="openClosing">Open/Closing Balance</button>
             <button type="button" class="gr-tab" data-type="stockTxn">Stock Transaction List</button>
-            <button type="button" class="gr-tab" data-type="currentStock">Current Stock</button>
+            <button type="button" class="gr-tab" data-type="profitLoss">Profit/Loss</button>
         </div>
         <div class="gr-credit-tools" id="creditScopeWrap">
             <div>
@@ -424,6 +448,7 @@
         creditScopeWrap: document.getElementById("creditScopeWrap"),
         creditScope: document.getElementById("creditScope"),
         btnLoad: document.getElementById("btnLoad"),
+        btnOpeningBalance: document.getElementById("btnOpeningBalance"),
         reportTabs: document.getElementById("reportTabs"),
         reportHead: document.getElementById("reportHead"),
         reportMeta: document.getElementById("reportMeta"),
@@ -451,8 +476,8 @@
         if (activeType === "openClosing") {
             return "open_closing";
         }
-        if (activeType === "currentStock") {
-            return "current_stock";
+        if (activeType === "profitLoss") {
+            return "profit_loss";
         }
         return "transaction";
     }
@@ -506,6 +531,113 @@
             });
     }
 
+    function openOpeningBalanceModal() {
+        var html = "" +
+            "<div style='text-align:left;'>" +
+            "<div style='font-size:13px;color:#5f7373;margin-bottom:4px;'>Amount</div>" +
+            "<input id='obAmount' type='number' min='0.01' step='0.01' placeholder='Enter opening balance amount' style='width:100%;height:38px;border:1px solid #c8d8d6;border-radius:8px;padding:0 10px;' />" +
+            "<div style='font-size:13px;color:#5f7373;margin:12px 0 4px;'>Payment Option</div>" +
+            "<select id='obPaymentMode' style='width:100%;height:38px;border:1px solid #c8d8d6;border-radius:8px;padding:0 10px;'>" +
+            "<option value='cash'>Cash</option>" +
+            "<option value='gpay'>GPay (Bank)</option>" +
+            "</select>" +
+            "<div id='obBankWrap' style='display:none;'>" +
+            "<div style='font-size:13px;color:#5f7373;margin:12px 0 4px;'>Bank</div>" +
+            "<select id='obBankId' style='width:100%;height:38px;border:1px solid #c8d8d6;border-radius:8px;padding:0 10px;'><option value=''>Select Bank</option></select>" +
+            "</div>" +
+            "</div>";
+
+        Swal.fire({
+            title: "Opening Balance",
+            html: html,
+            focusConfirm: false,
+            showCancelButton: true,
+            confirmButtonText: "Save",
+            confirmButtonColor: "#1f4f89",
+            cancelButtonText: "Cancel",
+            didOpen: function() {
+                var modeNode = document.getElementById("obPaymentMode");
+                var bankWrap = document.getElementById("obBankWrap");
+                var bankNode = document.getElementById("obBankId");
+
+                function syncBank() {
+                    var m = (modeNode.value || "cash").toLowerCase();
+                    bankWrap.style.display = m === "gpay" ? "block" : "none";
+                }
+
+                modeNode.addEventListener("change", syncBank);
+                syncBank();
+
+                fetch(getCtx() + "/goldTransation/goldTrans/getBankDetails.jsp")
+                    .then(function(r) { return r.json(); })
+                    .then(function(banks) {
+                        var opts = "<option value=''>Select Bank</option>";
+                        (banks || []).forEach(function(b) {
+                            opts += "<option value='" + b.id + "'>" + b.name + "</option>";
+                        });
+                        bankNode.innerHTML = opts;
+                    })
+                    .catch(function() {
+                        bankNode.innerHTML = "<option value=''>Unable to load bank</option>";
+                    });
+            },
+            preConfirm: function() {
+                var amount = num(document.getElementById("obAmount").value);
+                var paymentMode = (document.getElementById("obPaymentMode").value || "").trim().toLowerCase();
+                var bankId = parseInt(document.getElementById("obBankId").value || "0", 10);
+
+                if (amount <= 0) {
+                    Swal.showValidationMessage("Enter valid amount");
+                    return false;
+                }
+                if (paymentMode !== "cash" && paymentMode !== "gpay") {
+                    Swal.showValidationMessage("Select valid payment option");
+                    return false;
+                }
+                if (paymentMode === "gpay" && bankId <= 0) {
+                    Swal.showValidationMessage("Select bank for GPay");
+                    return false;
+                }
+
+                return {
+                    amount: amount,
+                    paymentMode: paymentMode,
+                    bankId: paymentMode === "gpay" ? bankId : 0
+                };
+            }
+        }).then(function(result) {
+            if (!result.isConfirmed || !result.value) {
+                return;
+            }
+
+            var payload = result.value;
+            fetch(getCtx() + "/goldTransation/report/getData.jsp?mode=save_opening_balance", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: "amount=" + encodeURIComponent(payload.amount) +
+                    "&paymentMode=" + encodeURIComponent(payload.paymentMode) +
+                    "&bankId=" + encodeURIComponent(payload.bankId)
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.success) {
+                    throw new Error(data && data.message ? data.message : "Unable to save opening balance");
+                }
+                Swal.fire({
+                    icon: "success",
+                    title: "Saved",
+                    text: "Opening balance entry saved successfully.",
+                    confirmButtonColor: "#1f4f89"
+                });
+                loadSummaryCards();
+                loadReport();
+            })
+            .catch(function(err) {
+                Swal.fire("Error", err.message || "Unable to save opening balance", "error");
+            });
+        });
+    }
+
     function getColumnsByType(type) {
         if (type === "creditList") {
             return ["#", "Customer Name", "Credit Amount"];
@@ -514,10 +646,10 @@
             return ["#", "Bill ID", "Customer", "Bill Date", "Bill Time", "In TM", "Out TM", "Rate", "Amount", "Net TM"];
         }
         if (type === "openClosing") {
-            return ["#", "Date Time", "Bill ID", "Customer", "Type", "Bill Amount", "In Amount", "Out Amount", "Opening Balance", "Closing Balance", "Notes"];
+            return ["#", "Date Time", "Customer", "Type", "Opening Balance", "In Amount", "Out Amount", "Closing Balance", "Notes"];
         }
-        if (type === "currentStock") {
-            return ["#", "Customer Name", "Purchase TM", "Sale TM", "Current Stock TM"];
+        if (type === "profitLoss") {
+            return ["#", "Particular", "Purchase TM", "Sale TM", "Purchase Rate", "Sale Rate", "Matched TM", "Profit/Loss per TM", "Profit/Loss"];
         }
         return ["#", "Customer Name", "Total Purchase", "Total Sale", "Purchase Paid (Cash+Bank)", "Sale Paid (Cash+Bank)", "Balance", "Purchase TM", "Sale TM"];
     }
@@ -544,7 +676,7 @@
             el.reportTable.classList.add("gr-table-wide");
             return;
         }
-        if (type === "currentStock") {
+        if (type === "profitLoss") {
             el.reportTable.classList.add("gr-table-medium");
         }
     }
@@ -1147,13 +1279,11 @@
             html += "<tr>" +
                 "<td>" + (idx + 1) + "</td>" +
                 "<td>" + (r.dateTime || "") + "</td>" +
-                "<td>" + (r.billId || "") + "</td>" +
-                "<td>" + (r.customerName || "") + "</td>" +
+                "<td>" + (r.customerName || "Opening Balance") + "</td>" +
                 "<td>" + (r.txnType || "") + "</td>" +
-                "<td class='gr-right'>" + money(r.billAmount) + "</td>" +
+                "<td class='gr-right'>" + money(r.openingBalance) + "</td>" +
                 "<td class='gr-right'>" + money(r.inAmount) + "</td>" +
                 "<td class='gr-right'>" + money(r.outAmount) + "</td>" +
-                "<td class='gr-right'>" + money(r.openingBalance) + "</td>" +
                 "<td class='gr-right'>" + money(r.closingBalance) + "</td>" +
                 "<td>" + (r.notes || "") + "</td>" +
                 "</tr>";
@@ -1162,11 +1292,10 @@
 
         var t = data.totals || {};
         el.reportFoot.innerHTML = "<tr>" +
-            "<td colspan='5'>Total</td>" +
-            "<td class='gr-right'>" + money(t.billAmount) + "</td>" +
+            "<td colspan='4'>Total</td>" +
+            "<td class='gr-right'>" + money(t.openingBalance) + "</td>" +
             "<td class='gr-right'>" + money(t.inAmount) + "</td>" +
             "<td class='gr-right'>" + money(t.outAmount) + "</td>" +
-            "<td class='gr-right'>" + money(t.openingBalance) + "</td>" +
             "<td class='gr-right'>" + money(t.closingBalance) + "</td>" +
             "<td class='gr-right'>-</td>" +
             "</tr>";
@@ -1174,12 +1303,12 @@
         el.reportMeta.textContent = (data.count || rows.length) + " open/closing rows loaded for " + (data.periodLabel || "selected period") + ".";
     }
 
-    function renderCurrentStock(data) {
+    function renderProfitLoss(data) {
         el.txnPaidSplitWrap.style.display = "none";
         var rows = data.rows || [];
         if (!rows.length) {
-            renderEmpty("No current stock rows.");
-            el.reportMeta.textContent = "0 current stock rows.";
+            renderEmpty("No profit/loss rows for selected date.");
+            el.reportMeta.textContent = "0 profit/loss rows.";
             return;
         }
 
@@ -1187,10 +1316,14 @@
         rows.forEach(function(r, idx) {
             html += "<tr>" +
                 "<td>" + (idx + 1) + "</td>" +
-                "<td>" + (r.customerName || "") + "</td>" +
+                "<td>" + (r.label || "Overall") + "</td>" +
                 "<td class='gr-right'>" + tm(r.purchaseTM) + "</td>" +
                 "<td class='gr-right'>" + tm(r.saleTM) + "</td>" +
-                "<td class='gr-right'>" + tm(r.currentStockTM) + "</td>" +
+                "<td class='gr-right'>" + money(r.purchaseRate) + "</td>" +
+                "<td class='gr-right'>" + money(r.saleRate) + "</td>" +
+                "<td class='gr-right'>" + tm(r.matchedTM) + "</td>" +
+                "<td class='gr-right'>" + money(r.profitPerTM) + "</td>" +
+                "<td class='gr-right'>" + money(r.profitLoss) + "</td>" +
                 "</tr>";
         });
         el.reportBody.innerHTML = html;
@@ -1200,10 +1333,14 @@
             "<td colspan='2'>Total</td>" +
             "<td class='gr-right'>" + tm(t.purchaseTM) + "</td>" +
             "<td class='gr-right'>" + tm(t.saleTM) + "</td>" +
-            "<td class='gr-right'>" + tm(t.currentStockTM) + "</td>" +
+            "<td class='gr-right'>" + money(t.purchaseRate) + "</td>" +
+            "<td class='gr-right'>" + money(t.saleRate) + "</td>" +
+            "<td class='gr-right'>" + tm(t.matchedTM) + "</td>" +
+            "<td class='gr-right'>" + money(t.profitPerTM) + "</td>" +
+            "<td class='gr-right'>" + money(t.profitLoss) + "</td>" +
             "</tr>";
 
-        el.reportMeta.textContent = (data.count || rows.length) + " current stock rows for " + (data.periodLabel || "selected period") + ".";
+        el.reportMeta.textContent = (data.count || rows.length) + " profit/loss rows for " + (data.periodLabel || "selected period") + ".";
     }
 
     function renderByType(data) {
@@ -1219,15 +1356,15 @@
             renderOpenClosing(data);
             return;
         }
-        if (activeType === "currentStock") {
-            renderCurrentStock(data);
+        if (activeType === "profitLoss") {
+            renderProfitLoss(data);
             return;
         }
         renderTransaction(data);
     }
 
     function needsDateFilter() {
-        return activeType === "transaction" || activeType === "openClosing" || activeType === "stockTxn" || activeType === "currentStock";
+        return activeType === "transaction" || activeType === "openClosing" || activeType === "stockTxn" || activeType === "profitLoss";
     }
 
     function updateFilterState() {
@@ -1302,6 +1439,7 @@
     }
 
     el.btnLoad.addEventListener("click", loadReport);
+    el.btnOpeningBalance.addEventListener("click", openOpeningBalanceModal);
     el.fromDate.addEventListener("change", loadReport);
     el.toDate.addEventListener("change", loadReport);
     el.creditScope.addEventListener("change", function() {

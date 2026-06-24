@@ -1232,6 +1232,128 @@ public class goldBillingBean {
     }
 
     /**
+     * Save opening balance as one payment row + one ledger row.
+     * Returns inserted ledger id.
+     */
+    public int saveOpeningBalance(
+            int userId,
+            double amount,
+            String paymentMode,
+            int bankId,
+            String billDate,
+            String billTime,
+            String notes) throws Exception {
+
+        Connection con = null;
+        PreparedStatement psPayment = null;
+        PreparedStatement psLedger = null;
+        PreparedStatement psBankLedger = null;
+        ResultSet rs = null;
+
+        try {
+            if (userId <= 0) {
+                throw new Exception("Invalid user");
+            }
+            if (amount <= 0) {
+                throw new Exception("Amount should be greater than zero");
+            }
+
+            String pm = paymentMode == null ? "" : paymentMode.trim().toLowerCase();
+            if (!"cash".equals(pm) && !"gpay".equals(pm) && !"bank".equals(pm)) {
+                throw new Exception("Invalid payment mode");
+            }
+            if (("gpay".equals(pm) || "bank".equals(pm)) && bankId <= 0) {
+                throw new Exception("Bank is required for GPay/Bank payment");
+            }
+
+            if (billDate == null || billDate.trim().length() == 0) {
+                billDate = new java.sql.Date(System.currentTimeMillis()).toString();
+            }
+            if (billTime == null || billTime.trim().length() == 0) {
+                billTime = new java.sql.Time(System.currentTimeMillis()).toString();
+            }
+            if (notes == null || notes.trim().length() == 0) {
+                notes = "Opening Balance";
+            }
+
+            con = getConn();
+            con.setAutoCommit(false);
+
+            psPayment = con.prepareStatement(
+                "INSERT INTO gold_trasaction_payment " +
+                "(bill_id, customer_id, user_id, payment_mode, payment_bank, amount, bill_date, bill_time, date_time, is_balance_collection, is_pay_or_collect, is_opening_balance) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), 0, 0, 1)");
+            psPayment.setNull(1, Types.INTEGER);
+            psPayment.setNull(2, Types.INTEGER);
+            psPayment.setInt(3, userId);
+            psPayment.setString(4, pm);
+            if (bankId > 0) psPayment.setInt(5, bankId);
+            else            psPayment.setNull(5, Types.INTEGER);
+            psPayment.setDouble(6, amount);
+            psPayment.setString(7, billDate);
+            psPayment.setString(8, billTime);
+            if (psPayment.executeUpdate() <= 0) {
+                throw new Exception("Failed to insert opening balance payment");
+            }
+            close(null, psPayment, null);
+            psPayment = null;
+
+            if (bankId > 0) {
+                psBankLedger = con.prepareStatement(
+                    "INSERT INTO bank_ledger " +
+                    "(bill_id, bank_id, in_amount, out_amount, notes, user_id, date_time, is_opening_balance) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)");
+                psBankLedger.setInt(1, 0);
+                psBankLedger.setInt(2, bankId);
+                psBankLedger.setDouble(3, amount);
+                psBankLedger.setDouble(4, 0.0);
+                psBankLedger.setString(5, notes);
+                psBankLedger.setInt(6, userId);
+                if (psBankLedger.executeUpdate() <= 0) {
+                    throw new Exception("Failed to insert opening balance bank ledger");
+                }
+                close(null, psBankLedger, null);
+                psBankLedger = null;
+            }
+
+            psLedger = con.prepareStatement(
+                "INSERT INTO gold_transaction_ledger " +
+                "(bill_id, customer_id, bill_amount, in_amount, out_amount, notes, date_time, user_id, is_sale, is_purchase, is_cancelled, is_balance_collection, is_pay_or_collect, is_opening_balance) " +
+                "VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, 0, 0, 0, 0, 0, 1)",
+                Statement.RETURN_GENERATED_KEYS);
+            psLedger.setNull(1, Types.INTEGER);
+            psLedger.setNull(2, Types.INTEGER);
+            psLedger.setDouble(3, amount);
+            psLedger.setDouble(4, amount);
+            psLedger.setDouble(5, 0.0);
+            psLedger.setString(6, notes);
+            psLedger.setInt(7, userId);
+            if (psLedger.executeUpdate() <= 0) {
+                throw new Exception("Failed to insert opening balance ledger");
+            }
+
+            int ledgerId = 0;
+            rs = psLedger.getGeneratedKeys();
+            if (rs != null && rs.next()) {
+                ledgerId = rs.getInt(1);
+            }
+
+            con.commit();
+            return ledgerId;
+        } catch (Exception e) {
+            if (con != null) {
+                try { con.rollback(); } catch (Exception ex) { }
+            }
+            throw e;
+        } finally {
+            close(rs, null, null);
+            close(null, psPayment, null);
+            close(null, psBankLedger, null);
+            close(null, psLedger, con);
+        }
+    }
+
+    /**
      * Returns customer account status.
      * Vector: [due, advance, netCredit]
      * netCredit = due - advance

@@ -35,6 +35,7 @@ boolean needsDate = !("summary_cards".equalsIgnoreCase(mode)
     || "credit_all".equalsIgnoreCase(mode)
     || "credit_explain".equalsIgnoreCase(mode)
     || "credit_settle".equalsIgnoreCase(mode)
+    || "save_opening_balance".equalsIgnoreCase(mode)
     || "credit_payment_details".equalsIgnoreCase(mode));
 if (needsDate) {
     if ((fromDate == null || fromDate.trim().isEmpty()) || (toDate == null || toDate.trim().isEmpty())) {
@@ -241,29 +242,23 @@ try {
         String fromDateTime = fromDate + " 00:00:00";
         String toDateTime = toDate + " 23:59:59";
 
-        Map openingMap = new HashMap();
-
+        double runningOpening = 0;
         ps = con.prepareStatement(
-            "SELECT gtl.customer_id, " +
-            "       SUM(CASE " +
-            "           WHEN gtl.is_sale = 1 THEN (COALESCE(gtl.bill_amount, 0) - COALESCE(gtl.in_amount, 0)) " +
-            "           WHEN gtl.is_purchase = 1 THEN -(COALESCE(gtl.bill_amount, 0) - COALESCE(gtl.out_amount, 0)) " +
-            "           ELSE (COALESCE(gtl.out_amount, 0) - COALESCE(gtl.in_amount, 0)) " +
-            "       END) AS opening_balance " +
+            "SELECT COALESCE(SUM(COALESCE(gtl.in_amount, 0) - COALESCE(gtl.out_amount, 0)), 0) AS opening_balance " +
             "FROM gold_transaction_ledger gtl " +
             "LEFT JOIN gold_trasaction gt ON gt.id = gtl.bill_id " +
             "WHERE gtl.is_cancelled = 0 " +
-            "  AND gtl.customer_id IS NOT NULL " +
+            "  AND (gtl.customer_id IS NOT NULL OR COALESCE(gtl.is_opening_balance, 0) = 1) " +
             "  AND ( " +
             "       ((gtl.is_sale = 1 OR gtl.is_purchase = 1) AND COALESCE(gt.is_cancelled, 0) = 0) " +
             "       OR (gtl.is_sale = 0 AND gtl.is_purchase = 0) " +
+            "       OR COALESCE(gtl.is_opening_balance, 0) = 1 " +
             "  ) " +
-            "  AND gtl.date_time < ? " +
-            "GROUP BY gtl.customer_id");
+            "  AND gtl.date_time < ?");
         ps.setString(1, fromDateTime);
         rs = ps.executeQuery();
-        while (rs.next()) {
-            openingMap.put(String.valueOf(rs.getInt("customer_id")), new Double(rs.getDouble("opening_balance")));
+        if (rs.next()) {
+            runningOpening = rs.getDouble("opening_balance");
         }
         if (rs != null) try { rs.close(); } catch (Exception e) {}
         if (ps != null) try { ps.close(); } catch (Exception e) {}
@@ -271,47 +266,48 @@ try {
         ps = con.prepareStatement(
             "SELECT gtl.id, gtl.bill_id, gtl.customer_id, c.name AS customer_name, " +
             "       gtl.bill_amount, gtl.in_amount, gtl.out_amount, gtl.notes, gtl.date_time, " +
-            "       gtl.is_sale, gtl.is_purchase " +
+            "       gtl.is_sale, gtl.is_purchase, COALESCE(gtl.is_opening_balance, 0) AS is_opening_balance " +
             "FROM gold_transaction_ledger gtl " +
             "LEFT JOIN gold_trasaction gt ON gt.id = gtl.bill_id " +
             "LEFT JOIN customers c ON c.id = gtl.customer_id " +
             "WHERE gtl.is_cancelled = 0 " +
-            "  AND gtl.customer_id IS NOT NULL " +
+            "  AND (gtl.customer_id IS NOT NULL OR COALESCE(gtl.is_opening_balance, 0) = 1) " +
             "  AND ( " +
             "       ((gtl.is_sale = 1 OR gtl.is_purchase = 1) AND COALESCE(gt.is_cancelled, 0) = 0) " +
             "       OR (gtl.is_sale = 0 AND gtl.is_purchase = 0) " +
+            "       OR COALESCE(gtl.is_opening_balance, 0) = 1 " +
             "  ) " +
             "  AND gtl.date_time BETWEEN ? AND ? " +
-            "ORDER BY gtl.customer_id ASC, gtl.date_time ASC, gtl.id ASC");
+            "ORDER BY gtl.date_time ASC, gtl.id ASC");
         ps.setString(1, fromDateTime);
         ps.setString(2, toDateTime);
         rs = ps.executeQuery();
 
-        double sumBillAmount = 0;
         double sumIn = 0;
         double sumOut = 0;
-        double sumClosing = 0;
-        double sumOpening = 0;
-        String prevCustomer = "";
+        double firstOpening = runningOpening;
+        double lastClosing = runningOpening;
 
         while (rs.next()) {
             JSONObject row = new JSONObject();
 
-            String customerKey = String.valueOf(rs.getInt("customer_id"));
-            double opening = openingMap.get(customerKey) == null ? 0.0 : ((Double) openingMap.get(customerKey)).doubleValue();
+            int customerIdVal = rs.getInt("customer_id");
+            boolean customerNull = rs.wasNull();
             int isSale = rs.getInt("is_sale");
             int isPurchase = rs.getInt("is_purchase");
+            int isOpeningBalance = rs.getInt("is_opening_balance");
             double billAmount = rs.getDouble("bill_amount");
             double inAmount = rs.getDouble("in_amount");
             double outAmount = rs.getDouble("out_amount");
-            double effect = isSale == 1
-                ? (billAmount - inAmount)
-                : (isPurchase == 1 ? -(billAmount - outAmount) : (outAmount - inAmount));
+            double opening = runningOpening;
+            double effect = inAmount - outAmount;
             double closing = opening + effect;
+            runningOpening = closing;
+            lastClosing = closing;
 
             row.put("id", rs.getInt("id"));
             row.put("billId", rs.getInt("bill_id"));
-            row.put("customerId", rs.getInt("customer_id"));
+            row.put("customerId", customerNull ? null : new Integer(customerIdVal));
             row.put("customerName", rs.getString("customer_name"));
             row.put("billAmount", billAmount);
             row.put("inAmount", inAmount);
@@ -319,28 +315,21 @@ try {
             row.put("openingBalance", opening);
             row.put("closingBalance", closing);
             row.put("effect", effect);
-            row.put("txnType", isSale == 1 ? "SALE" : (isPurchase == 1 ? "PURCHASE" : (inAmount > 0 ? "COLLECT" : (outAmount > 0 ? "PAY" : "-"))));
+            row.put("isOpeningBalance", isOpeningBalance);
+            row.put("txnType", isOpeningBalance == 1 ? "OPENING" : (isSale == 1 ? "SALE" : (isPurchase == 1 ? "PURCHASE" : (inAmount > 0 ? "COLLECT" : (outAmount > 0 ? "PAY" : "-")))));
             row.put("notes", rs.getString("notes"));
             row.put("dateTime", rs.getString("date_time"));
             rows.add(row);
 
-            openingMap.put(customerKey, new Double(closing));
-            sumBillAmount += billAmount;
             sumIn += inAmount;
             sumOut += outAmount;
-            sumClosing += closing;
-            if (!customerKey.equals(prevCustomer)) {
-                sumOpening += opening;
-                prevCustomer = customerKey;
-            }
         }
 
         JSONObject totals = new JSONObject();
-        totals.put("billAmount", sumBillAmount);
         totals.put("inAmount", sumIn);
         totals.put("outAmount", sumOut);
-        totals.put("openingBalance", sumOpening);
-        totals.put("closingBalance", sumClosing);
+        totals.put("openingBalance", firstOpening);
+        totals.put("closingBalance", lastClosing);
         resp.put("totals", totals);
     } else if ("credit_all".equalsIgnoreCase(mode)) {
         String creditScope = request.getParameter("creditScope");
@@ -564,6 +553,61 @@ try {
         settle.put("advance", advance);
         settle.put("action", action == null ? "" : action);
         resp.put("settle", settle);
+    } else if ("save_opening_balance".equalsIgnoreCase(mode)) {
+        Integer uid = (Integer) session.getAttribute("userId");
+        if (uid == null) {
+            resp.put("success", false);
+            resp.put("message", "Session expired");
+            out.print(resp.toString());
+            return;
+        }
+
+        double amount = 0;
+        int bankId = 0;
+        String paymentMode = request.getParameter("paymentMode");
+        String notes = request.getParameter("notes");
+        String reqBillDate = request.getParameter("billDate");
+        String reqBillTime = request.getParameter("billTime");
+        try { amount = Double.parseDouble(request.getParameter("amount")); } catch (Exception ex) { }
+        try { bankId = Integer.parseInt(request.getParameter("bankId")); } catch (Exception ex) { }
+
+        if (amount <= 0) {
+            resp.put("success", false);
+            resp.put("message", "Enter valid amount");
+            out.print(resp.toString());
+            return;
+        }
+
+        String pm = paymentMode == null ? "" : paymentMode.trim().toLowerCase();
+        if (!("cash".equals(pm) || "gpay".equals(pm) || "bank".equals(pm))) {
+            resp.put("success", false);
+            resp.put("message", "Select valid payment mode");
+            out.print(resp.toString());
+            return;
+        }
+        if (("gpay".equals(pm) || "bank".equals(pm)) && bankId <= 0) {
+            resp.put("success", false);
+            resp.put("message", "Select bank for GPay/Bank");
+            out.print(resp.toString());
+            return;
+        }
+
+        int ledgerId = goldBean.saveOpeningBalance(
+            uid.intValue(),
+            amount,
+            pm,
+            bankId,
+            reqBillDate,
+            reqBillTime,
+            notes
+        );
+
+        JSONObject openingBalance = new JSONObject();
+        openingBalance.put("ledgerId", ledgerId);
+        openingBalance.put("amount", amount);
+        openingBalance.put("paymentMode", pm);
+        openingBalance.put("bankId", bankId);
+        resp.put("openingBalance", openingBalance);
     } else if ("credit_payment_details".equalsIgnoreCase(mode)) {
         int billId = 0;
         int customerId = 0;
@@ -647,7 +691,7 @@ try {
             "    FROM gold_trasaction_stock GROUP BY bill_id " +
             ") st ON st.bill_id = gt.id " +
             "WHERE gt.is_cancelled = 0 AND gt.bill_date BETWEEN ? AND ? " +
-            "ORDER BY gt.id DESC";
+            "ORDER BY gt.bill_date ASC, gt.bill_time ASC, gt.id ASC";
 
         ps = con.prepareStatement(sql);
         ps.setString(1, fromDate);
@@ -701,6 +745,56 @@ try {
         totals.put("total", sumTotal);
         totals.put("paid", sumPaid);
         totals.put("balance", sumBalance);
+        resp.put("totals", totals);
+    } else if ("profit_loss".equalsIgnoreCase(mode)) {
+        String sql =
+            "SELECT " +
+            " COALESCE(SUM(CASE WHEN gt.is_purchase = 1 THEN gts.in_qty ELSE 0 END), 0) AS purchase_tm, " +
+            " COALESCE(SUM(CASE WHEN gt.is_sale = 1 THEN gts.out_qty ELSE 0 END), 0) AS sale_tm, " +
+            " COALESCE(SUM(CASE WHEN gt.is_purchase = 1 THEN gts.total ELSE 0 END), 0) AS purchase_amount, " +
+            " COALESCE(SUM(CASE WHEN gt.is_sale = 1 THEN gts.total ELSE 0 END), 0) AS sale_amount " +
+            "FROM gold_trasaction_stock gts " +
+            "INNER JOIN gold_trasaction gt ON gt.id = gts.bill_id " +
+            "WHERE gt.is_cancelled = 0 " +
+            "  AND gt.bill_date BETWEEN ? AND ?";
+
+        ps = con.prepareStatement(sql);
+        ps.setString(1, fromDate);
+        ps.setString(2, toDate);
+        rs = ps.executeQuery();
+
+        JSONObject totals = new JSONObject();
+        if (rs.next()) {
+            double purchaseTM = rs.getDouble("purchase_tm");
+            double saleTM = rs.getDouble("sale_tm");
+            double purchaseAmount = rs.getDouble("purchase_amount");
+            double saleAmount = rs.getDouble("sale_amount");
+
+            double purchaseRate = purchaseTM > 0 ? (purchaseAmount / purchaseTM) : 0;
+            double saleRate = saleTM > 0 ? (saleAmount / saleTM) : 0;
+            double matchedTM = Math.min(purchaseTM, saleTM);
+            double profitPerTM = saleRate - purchaseRate;
+            double profitLoss = profitPerTM * matchedTM;
+
+            JSONObject row = new JSONObject();
+            row.put("label", "Overall Profit/Loss");
+            row.put("purchaseTM", purchaseTM);
+            row.put("saleTM", saleTM);
+            row.put("purchaseRate", purchaseRate);
+            row.put("saleRate", saleRate);
+            row.put("matchedTM", matchedTM);
+            row.put("profitPerTM", profitPerTM);
+            row.put("profitLoss", profitLoss);
+            rows.add(row);
+
+            totals.put("purchaseTM", purchaseTM);
+            totals.put("saleTM", saleTM);
+            totals.put("purchaseRate", purchaseRate);
+            totals.put("saleRate", saleRate);
+            totals.put("matchedTM", matchedTM);
+            totals.put("profitPerTM", profitPerTM);
+            totals.put("profitLoss", profitLoss);
+        }
         resp.put("totals", totals);
     } else if ("current_stock".equalsIgnoreCase(mode)) {
         String sql =
