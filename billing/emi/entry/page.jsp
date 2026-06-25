@@ -20,9 +20,13 @@ if (userId == null) {
         .badge-pending { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; padding: 4px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; }
         .badge-borrow { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
         .badge-give { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+        .badge-completed { background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
         .inst-paid { color: #0f766e; font-weight: 600; }
         .inst-pending { color: #b45309; font-weight: 600; }
         .schedule-wrap { max-height: 220px; overflow: auto; border: 1px solid #dbe7e5; border-radius: 8px; }
+        .emi-tab-btn.active { background: #1f2f57; color: #fff; border-color: #1f2f57; }
+        .emi-tab-pane { display: none; }
+        .emi-tab-pane.active { display: block; }
     </style>
 </head>
 <body>
@@ -96,30 +100,60 @@ String type = request.getParameter("type");
             <div class="card">
                 <div class="card-body p-4">
                     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-                        <h5 class="mb-0">Pending EMI Customers</h5>
-                        <button type="button" class="bb bb-outline btn-sm" onclick="loadPendingEmi()">
-                            <i class="fa-solid fa-rotate"></i> Refresh
-                        </button>
+                        <h5 class="mb-0" id="emiListTitle">Pending EMI Customers</h5>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="bb bb-outline btn-sm emi-tab-btn active" data-tab="pending">Pending</button>
+                            <button type="button" class="bb bb-outline btn-sm emi-tab-btn" data-tab="completed">Completed</button>
+                            <button type="button" class="bb bb-outline btn-sm" onclick="refreshActiveTab()">
+                                <i class="fa-solid fa-rotate"></i> Refresh
+                            </button>
+                        </div>
                     </div>
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0 mst-table">
-                            <thead>
-                                <tr>
-                                    <th>#</th>
-                                    <th>Customer</th>
-                                    <th>Type</th>
-                                    <th class="text-end">Total</th>
-                                    <th>Phone</th>
-                                    <th class="text-end">Monthly EMI</th>
-                                    <th class="text-center">Pending</th>
-                                    <th>Next Due</th>
-                                    <th>Action</th>
-                                </tr>
-                            </thead>
-                            <tbody id="pendingBody">
-                                <tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
-                            </tbody>
-                        </table>
+
+                    <div id="pendingPane" class="emi-tab-pane active">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 mst-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Customer</th>
+                                        <th>Type</th>
+                                        <th class="text-end">Total</th>
+                                        <th>Phone</th>
+                                        <th class="text-end">Monthly EMI</th>
+                                        <th class="text-center">Pending</th>
+                                        <th>Next Due</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="pendingBody">
+                                    <tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div id="completedPane" class="emi-tab-pane">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 mst-table">
+                                <thead>
+                                    <tr>
+                                        <th>#</th>
+                                        <th>Customer</th>
+                                        <th>Type</th>
+                                        <th class="text-end">Total</th>
+                                        <th>Phone</th>
+                                        <th class="text-end">Monthly EMI</th>
+                                        <th class="text-center">Paid</th>
+                                        <th>Completed On</th>
+                                        <th>Action</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="completedBody">
+                                    <tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -129,6 +163,7 @@ String type = request.getParameter("type");
 
 <script>
     var contextPath = "<%=contextPath%>";
+    var activeTab = "pending";
 
     function formatMoney(val) {
         var n = parseFloat(val);
@@ -162,6 +197,20 @@ String type = request.getParameter("type");
         })
         .catch(function(err) {
             Swal.fire("Error", err.message || "Unable to load pending EMI", "error");
+        });
+    }
+
+    function loadCompletedEmi() {
+        fetch(contextPath + "/emi/entry/getData.jsp?mode=completed", { credentials: "same-origin" })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data || !data.success) {
+                throw new Error(data && data.message ? data.message : "Unable to load completed EMI");
+            }
+            renderCompleted(data.rows || []);
+        })
+        .catch(function(err) {
+            Swal.fire("Error", err.message || "Unable to load completed EMI", "error");
         });
     }
 
@@ -207,6 +256,72 @@ String type = request.getParameter("type");
         tbody.innerHTML = html;
     }
 
+    function renderCompleted(rows) {
+        var tbody = document.getElementById("completedBody");
+        if (!rows.length) {
+            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No completed EMI customers</td></tr>';
+            return;
+        }
+        var html = "";
+        for (var i = 0; i < rows.length; i++) {
+            var r = rows[i];
+            html += "<tr>";
+            html += "<td>" + (i + 1) + "</td>";
+            html += "<td><strong>" + (r.customerName || "") + "</strong></td>";
+            html += "<td>" + emiTypeLabel(r.emiType) + "</td>";
+            html += "<td class='text-end'>" + formatMoney(r.totalAmount) + "</td>";
+            html += "<td>" + (r.phoneNumber || "-") + "</td>";
+            html += "<td class='text-end'>" + formatMoney(r.emiAmount) + "</td>";
+            html += "<td class='text-center'><span class='badge-completed'>" + (r.paidCount || 0) + " / " + (r.emiMonths || 0) + "</span></td>";
+            html += "<td>" + formatDisplayDate(r.completedDate) + "</td>";
+            html += "<td>";
+            html += "<button type='button' class='bb bb-outline btn-sm view-schedule-btn' " +
+                "data-customer-id='" + escAttr(r.emiCustomerId) + "' " +
+                "data-customer-name='" + escAttr(r.customerName) + "'>Schedule</button>";
+            html += "</td>";
+            html += "</tr>";
+        }
+        tbody.innerHTML = html;
+    }
+
+    function setActiveTab(tab) {
+        activeTab = tab === "completed" ? "completed" : "pending";
+
+        var pendingPane = document.getElementById("pendingPane");
+        var completedPane = document.getElementById("completedPane");
+        var title = document.getElementById("emiListTitle");
+        var tabBtns = document.querySelectorAll(".emi-tab-btn");
+
+        if (activeTab === "completed") {
+            pendingPane.classList.remove("active");
+            completedPane.classList.add("active");
+            title.textContent = "Completed EMI Customers";
+        } else {
+            completedPane.classList.remove("active");
+            pendingPane.classList.add("active");
+            title.textContent = "Pending EMI Customers";
+        }
+
+        for (var i = 0; i < tabBtns.length; i++) {
+            var btn = tabBtns[i];
+            if (btn.getAttribute("data-tab") === activeTab) {
+                btn.classList.add("active");
+            } else {
+                btn.classList.remove("active");
+            }
+        }
+
+        refreshActiveTab();
+    }
+
+    function refreshActiveTab() {
+        if (activeTab === "completed") {
+            loadCompletedEmi();
+            return;
+        }
+        loadPendingEmi();
+    }
+
     document.getElementById("pendingBody").addEventListener("click", function(e) {
         var payBtn = e.target.closest(".pay-emi-btn");
         if (payBtn) {
@@ -226,6 +341,22 @@ String type = request.getParameter("type");
                 scheduleBtn.getAttribute("data-customer-name")
             );
         }
+    });
+
+    document.getElementById("completedBody").addEventListener("click", function(e) {
+        var scheduleBtn = e.target.closest(".view-schedule-btn");
+        if (scheduleBtn) {
+            viewSchedule(
+                scheduleBtn.getAttribute("data-customer-id"),
+                scheduleBtn.getAttribute("data-customer-name")
+            );
+        }
+    });
+
+    document.querySelectorAll(".emi-tab-btn").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+            setActiveTab(btn.getAttribute("data-tab"));
+        });
     });
 
     function payEmi(installmentId, customerName, amount, dueDate, installmentNo) {
@@ -260,7 +391,7 @@ String type = request.getParameter("type");
                     throw new Error(data && data.message ? data.message : "Unable to pay EMI");
                 }
                 Swal.fire("Success", data.message || "EMI paid", "success");
-                loadPendingEmi();
+                refreshActiveTab();
             })
             .catch(function(err) {
                 Swal.fire("Error", err.message || "Unable to pay EMI", "error");
@@ -277,16 +408,18 @@ String type = request.getParameter("type");
             }
             var rows = data.rows || [];
             var html = "<div class='schedule-wrap'><table class='table table-sm mb-0'><thead><tr>" +
-                "<th>#</th><th>Due Date</th><th class='text-end'>Amount</th><th>Status</th></tr></thead><tbody>";
+                "<th>#</th><th>Due Date</th><th>Paid Date</th><th class='text-end'>Amount</th><th>Status</th></tr></thead><tbody>";
             if (!rows.length) {
-                html += "<tr><td colspan='4' class='text-center text-muted py-3'>No schedule found</td></tr>";
+                html += "<tr><td colspan='5' class='text-center text-muted py-3'>No schedule found</td></tr>";
             } else {
                 for (var i = 0; i < rows.length; i++) {
                     var row = rows[i];
                     var paid = row.isPaid === "1" || row.isPaid === 1;
+                    var paidDate = paid ? formatDisplayDate(row.paidDate) : "-";
                     html += "<tr>";
                     html += "<td>" + row.installmentNo + "</td>";
                     html += "<td>" + formatDisplayDate(row.dueDate) + "</td>";
+                    html += "<td>" + paidDate + "</td>";
                     html += "<td class='text-end'>" + formatMoney(row.emiAmount) + "</td>";
                     html += "<td class='" + (paid ? "inst-paid" : "inst-pending") + "'>" + (paid ? "Paid" : "Pending") + "</td>";
                     html += "</tr>";
@@ -315,7 +448,7 @@ String type = request.getParameter("type");
         if (firstDue && !firstDue.value) {
             firstDue.value = yyyy + "-" + mm + "-" + dd;
         }
-        loadPendingEmi();
+        refreshActiveTab();
         document.getElementById("customerName").focus();
     });
 </script>

@@ -235,11 +235,20 @@
             color: #1f4f89;
         }
 
+        .gr-report-tools {
+            display: flex;
+            justify-content: space-between;
+            align-items: end;
+            gap: 12px;
+            margin: 0 0 10px;
+            flex-wrap: wrap;
+        }
+
         .gr-credit-tools {
             display: flex;
-            justify-content: flex-end;
+            justify-content: flex-start;
             align-items: end;
-            margin: 0 0 10px;
+            margin: 0;
         }
 
         .gr-credit-tools .gr-form-label {
@@ -248,6 +257,18 @@
 
         .gr-credit-tools .gr-input {
             width: 230px;
+        }
+
+        .gr-export-tools {
+            display: flex;
+            gap: 8px;
+            align-items: end;
+            margin-left: auto;
+        }
+
+        .gr-export-tools .gr-icon-btn {
+            height: 40px;
+            width: 40px;
         }
 
         .gr-table-wrap {
@@ -338,6 +359,11 @@
             .gr-credit-tools .gr-input {
                 width: 100%;
             }
+
+            .gr-export-tools {
+                width: 100%;
+                justify-content: flex-end;
+            }
         }
     </style>
 </head>
@@ -407,13 +433,23 @@
             <button type="button" class="gr-tab" data-type="stockTxn">Stock Transaction List</button>
             <button type="button" class="gr-tab" data-type="profitLoss">Profit/Loss</button>
         </div>
-        <div class="gr-credit-tools" id="creditScopeWrap">
-            <div>
-                <label class="gr-form-label">Credit Filter</label>
-                <select id="creditScope" class="gr-input">
-                    <option value="credit_only">Credit Customers Only</option>
-                    <option value="all_customers">All Customers</option>
-                </select>
+        <div class="gr-report-tools">
+            <div class="gr-credit-tools" id="creditScopeWrap">
+                <div>
+                    <label class="gr-form-label">Credit Filter</label>
+                    <select id="creditScope" class="gr-input">
+                        <option value="credit_only">Credit Customers Only</option>
+                        <option value="all_customers">All Customers</option>
+                    </select>
+                </div>
+            </div>
+            <div class="gr-export-tools">
+                <button id="btnTabPrint" type="button" class="gr-icon-btn" title="Print Credit List">
+                    <i class="fa-solid fa-print"></i>
+                </button>
+                <button id="btnTabXlsx" type="button" class="gr-icon-btn" title="Export Credit List">
+                    <i class="fa-solid fa-file-excel"></i>
+                </button>
             </div>
         </div>
         <div class="gr-table-wrap">
@@ -437,6 +473,8 @@
         toDate: document.getElementById("toDate"),
         creditScopeWrap: document.getElementById("creditScopeWrap"),
         creditScope: document.getElementById("creditScope"),
+        btnTabPrint: document.getElementById("btnTabPrint"),
+        btnTabXlsx: document.getElementById("btnTabXlsx"),
         btnLoad: document.getElementById("btnLoad"),
         btnOpeningBalance: document.getElementById("btnOpeningBalance"),
         reportTabs: document.getElementById("reportTabs"),
@@ -470,6 +508,44 @@
 
     function getCtx() {
         return "<%= request.getContextPath() %>";
+    }
+
+    function getTabTitle(type) {
+        if (type === "creditList") {
+            return "Credit List";
+        }
+        if (type === "transaction") {
+            return "Transaction";
+        }
+        if (type === "openClosing") {
+            return "Cash Open Closing Balance";
+        }
+        if (type === "stockTxn") {
+            return "Stock Transaction List";
+        }
+        if (type === "profitLoss") {
+            return "Profit Loss";
+        }
+        return "Report";
+    }
+
+    function getTabFileLabel(type) {
+        if (type === "creditList") {
+            return "Credit_List";
+        }
+        if (type === "transaction") {
+            return "Transaction";
+        }
+        if (type === "openClosing") {
+            return "Cash_Open_Closing";
+        }
+        if (type === "stockTxn") {
+            return "Stock_Transaction_List";
+        }
+        if (type === "profitLoss") {
+            return "Profit_Loss";
+        }
+        return "Report";
     }
 
     function getCreditScope() {
@@ -1448,6 +1524,163 @@
         return activeType === "transaction" || activeType === "openClosing" || activeType === "stockTxn" || activeType === "profitLoss";
     }
 
+    function getPeriodLabelForExport() {
+        if (!needsDateFilter()) {
+            return "All time";
+        }
+        var fromDate = (el.fromDate.value || "").trim();
+        var toDate = (el.toDate.value || "").trim();
+        if (!fromDate || !toDate) {
+            return "Selected period";
+        }
+        return toDisplayPeriod(fromDate + " to " + toDate);
+    }
+
+    function buildExportTableHtml() {
+        var tableHtml = "<table style='width:100%;border-collapse:collapse;'>";
+        tableHtml += "<thead>" + el.reportHead.innerHTML + "</thead>";
+        tableHtml += "<tbody>" + el.reportBody.innerHTML + "</tbody>";
+        if (el.reportFoot.innerHTML && el.reportFoot.innerHTML.trim()) {
+            tableHtml += "<tfoot>" + el.reportFoot.innerHTML + "</tfoot>";
+        }
+        tableHtml += "</table>";
+        return tableHtml;
+    }
+
+    function printTabReport(type) {
+        var title = getTabTitle(type);
+        var period = getPeriodLabelForExport();
+        var tableHtml = buildExportTableHtml();
+
+        fetch(getCtx() + "/printHeader.jsp")
+            .then(function(response) { return response.text(); })
+            .catch(function() { return ""; })
+            .then(function(headerHtml) {
+                var printWin = window.open("", "_blank", "width=1300,height=900");
+                if (!printWin) {
+                    Swal.fire("Popup Blocked", "Please allow popups to print this report.", "warning");
+                    return;
+                }
+
+                var html = "<!DOCTYPE html><html><head><meta charset='UTF-8'><title>" + title + "</title>" +
+                    "<style>" +
+                    "@page { size: landscape; margin: 12mm; }" +
+                    "body { font-family: Arial, sans-serif; color: #1f2f2f; margin: 0; padding: 0; }" +
+                    ".rpt-wrap { margin-top: 10px; }" +
+                    ".rpt-title { font-size: 18px; font-weight: 700; margin: 8px 0 4px; }" +
+                    ".rpt-meta { font-size: 12px; color: #425c5c; margin-bottom: 12px; }" +
+                    "table { border-collapse: collapse; width: 100%; table-layout: auto; }" +
+                    "th, td { border: 1px solid #8aa0a0; padding: 6px; font-size: 11px; white-space: normal; word-break: break-word; vertical-align: top; }" +
+                    "thead th { background: #edf3f3; }" +
+                    "tfoot td { background: #f5f9f9; font-weight: 700; }" +
+                    "td.gr-right, th.gr-right { text-align: right; }" +
+                    "</style></head><body>" +
+                    (headerHtml || "") +
+                    "<div class='rpt-wrap'><div class='rpt-title'>" + title + "</div>" +
+                    "<div class='rpt-meta'>Period: " + period + "</div>" +
+                    tableHtml +
+                    "</div></body></html>";
+
+                printWin.document.open();
+                printWin.document.write(html);
+                printWin.document.close();
+                printWin.focus();
+                setTimeout(function() {
+                    printWin.print();
+                    printWin.close();
+                }, 250);
+            });
+    }
+
+    function exportTabExcel(type) {
+        var title = getTabTitle(type);
+        var period = getPeriodLabelForExport();
+        var fileLabel = getTabFileLabel(type);
+        var tableHtml = buildExportTableHtml();
+
+        var html = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:x='urn:schemas-microsoft-com:office:excel'>" +
+            "<head><meta charset='utf-8'><style>" +
+            "table { border-collapse: collapse; width: 100%; }" +
+            "th, td { border: 1px solid #000; padding: 6px; font-size: 12px; white-space: normal; word-break: break-word; }" +
+            "th.gr-right, td.gr-right { text-align: right; }" +
+            "tfoot td { font-weight: 700; }" +
+            "</style></head><body>" +
+            "<h3>" + title + "</h3>" +
+            "<div style='margin-bottom:8px;'>Period: " + period + "</div>" +
+            tableHtml +
+            "</body></html>";
+
+        var blob = new Blob(["\ufeff", html], { type: "application/vnd.ms-excel" });
+        var url = URL.createObjectURL(blob);
+        var d = new Date();
+        var stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, "0") + String(d.getDate()).padStart(2, "0");
+        var downloadLink = document.createElement("a");
+        downloadLink.href = url;
+        downloadLink.download = fileLabel + "_" + stamp + ".xls";
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+        document.body.removeChild(downloadLink);
+        URL.revokeObjectURL(url);
+    }
+
+    function printCreditListReport() { printTabReport("creditList"); }
+    function printTransactionReport() { printTabReport("transaction"); }
+    function printOpenClosingReport() { printTabReport("openClosing"); }
+    function printStockTxnReport() { printTabReport("stockTxn"); }
+    function printProfitLossReport() { printTabReport("profitLoss"); }
+
+    function exportCreditListExcel() { exportTabExcel("creditList"); }
+    function exportTransactionExcel() { exportTabExcel("transaction"); }
+    function exportOpenClosingExcel() { exportTabExcel("openClosing"); }
+    function exportStockTxnExcel() { exportTabExcel("stockTxn"); }
+    function exportProfitLossExcel() { exportTabExcel("profitLoss"); }
+
+    function printActiveTab() {
+        if (activeType === "creditList") {
+            printCreditListReport();
+            return;
+        }
+        if (activeType === "transaction") {
+            printTransactionReport();
+            return;
+        }
+        if (activeType === "openClosing") {
+            printOpenClosingReport();
+            return;
+        }
+        if (activeType === "stockTxn") {
+            printStockTxnReport();
+            return;
+        }
+        printProfitLossReport();
+    }
+
+    function exportActiveTab() {
+        if (activeType === "creditList") {
+            exportCreditListExcel();
+            return;
+        }
+        if (activeType === "transaction") {
+            exportTransactionExcel();
+            return;
+        }
+        if (activeType === "openClosing") {
+            exportOpenClosingExcel();
+            return;
+        }
+        if (activeType === "stockTxn") {
+            exportStockTxnExcel();
+            return;
+        }
+        exportProfitLossExcel();
+    }
+
+    function updateExportTitles() {
+        var title = getTabTitle(activeType);
+        el.btnTabPrint.title = "Print " + title;
+        el.btnTabXlsx.title = "Export " + title;
+    }
+
     function updateFilterState() {
         var enabled = needsDateFilter();
         el.fromDate.disabled = !enabled;
@@ -1458,6 +1691,7 @@
         } else {
             el.btnLoad.textContent = "Load Credit";
         }
+        updateExportTitles();
     }
 
     function loadReport() {
@@ -1521,6 +1755,8 @@
 
     el.btnLoad.addEventListener("click", loadReport);
     el.btnOpeningBalance.addEventListener("click", openOpeningBalanceModal);
+    el.btnTabPrint.addEventListener("click", printActiveTab);
+    el.btnTabXlsx.addEventListener("click", exportActiveTab);
     el.fromDate.addEventListener("change", loadReport);
     el.toDate.addEventListener("change", loadReport);
     el.creditScope.addEventListener("change", function() {

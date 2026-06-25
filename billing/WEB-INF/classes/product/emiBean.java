@@ -187,6 +187,44 @@ public class emiBean {
         }
     }
 
+    public Vector getCompletedEmiCustomersList() throws Exception {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            con = getConn();
+            Vector major = new Vector();
+            ps = con.prepareStatement(
+                "SELECT ec.id, ec.customer_name, COALESCE(ec.phone_number, '') AS phone_number, " +
+                "       ec.total_amount, ec.emi_type, ec.emi_amount, ec.emi_months, " +
+                "       SUM(CASE WHEN ei.is_paid = 1 THEN 1 ELSE 0 END) AS paid_count, " +
+                "       COALESCE(DATE_FORMAT(MAX(ei.paid_date), '%Y-%m-%d %H:%i:%s'), '') AS completed_date " +
+                "FROM emi_customer ec " +
+                "INNER JOIN emi_installment ei ON ei.emi_customer_id = ec.id " +
+                "WHERE ec.is_closed = 1 " +
+                "GROUP BY ec.id, ec.customer_name, ec.phone_number, ec.total_amount, ec.emi_type, ec.emi_amount, ec.emi_months " +
+                "ORDER BY MAX(ei.paid_date) DESC, ec.customer_name ASC");
+            rs = ps.executeQuery();
+            while (rs.next()) {
+                Vector row = new Vector();
+                row.addElement(rs.getString("id"));
+                row.addElement(rs.getString("customer_name"));
+                row.addElement(rs.getString("phone_number"));
+                row.addElement(rs.getString("total_amount"));
+                row.addElement(rs.getString("emi_type"));
+                row.addElement(rs.getString("emi_amount"));
+                row.addElement(rs.getString("emi_months"));
+                row.addElement(rs.getString("paid_count"));
+                row.addElement(rs.getString("completed_date"));
+                major.addElement(row);
+            }
+            return major;
+        } finally {
+            close(rs, ps, con);
+        }
+    }
+
     public Vector getEmiInstallmentList(int emiCustomerId) throws Exception {
         Connection con = null;
         PreparedStatement ps = null;

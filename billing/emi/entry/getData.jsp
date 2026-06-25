@@ -65,23 +65,41 @@ try {
         return;
     }
 
-    Vector pending = emi.getPendingEmiCustomersList();
-    for (int i = 0; i < pending.size(); i++) {
-        Vector row = (Vector) pending.get(i);
-        JSONObject item = new JSONObject();
-        item.put("emiCustomerId", row.elementAt(0).toString());
-        item.put("customerName", row.elementAt(1).toString());
-        item.put("phoneNumber", row.elementAt(2).toString());
-        item.put("totalAmount", row.elementAt(3).toString());
-        item.put("emiType", row.elementAt(4).toString());
-        item.put("emiAmount", row.elementAt(5).toString());
-        item.put("emiMonths", row.elementAt(6).toString());
-        item.put("pendingCount", row.elementAt(7).toString());
-        item.put("paidCount", row.elementAt(8).toString());
-        item.put("nextDueDate", row.elementAt(9).toString());
-        item.put("nextInstallmentId", row.elementAt(10).toString());
-        item.put("nextInstallmentNo", row.elementAt(11).toString());
-        rows.add(item);
+    if ("completed".equalsIgnoreCase(mode)) {
+        Vector completed = emi.getCompletedEmiCustomersList();
+        for (int i = 0; i < completed.size(); i++) {
+            Vector row = (Vector) completed.get(i);
+            JSONObject item = new JSONObject();
+            item.put("emiCustomerId", row.elementAt(0).toString());
+            item.put("customerName", row.elementAt(1).toString());
+            item.put("phoneNumber", row.elementAt(2).toString());
+            item.put("totalAmount", row.elementAt(3).toString());
+            item.put("emiType", row.elementAt(4).toString());
+            item.put("emiAmount", row.elementAt(5).toString());
+            item.put("emiMonths", row.elementAt(6).toString());
+            item.put("paidCount", row.elementAt(7).toString());
+            item.put("completedDate", row.elementAt(8).toString());
+            rows.add(item);
+        }
+    } else {
+        Vector pending = emi.getPendingEmiCustomersList();
+        for (int i = 0; i < pending.size(); i++) {
+            Vector row = (Vector) pending.get(i);
+            JSONObject item = new JSONObject();
+            item.put("emiCustomerId", row.elementAt(0).toString());
+            item.put("customerName", row.elementAt(1).toString());
+            item.put("phoneNumber", row.elementAt(2).toString());
+            item.put("totalAmount", row.elementAt(3).toString());
+            item.put("emiType", row.elementAt(4).toString());
+            item.put("emiAmount", row.elementAt(5).toString());
+            item.put("emiMonths", row.elementAt(6).toString());
+            item.put("pendingCount", row.elementAt(7).toString());
+            item.put("paidCount", row.elementAt(8).toString());
+            item.put("nextDueDate", row.elementAt(9).toString());
+            item.put("nextInstallmentId", row.elementAt(10).toString());
+            item.put("nextInstallmentNo", row.elementAt(11).toString());
+            rows.add(item);
+        }
     }
 
     resp.put("success", true);
