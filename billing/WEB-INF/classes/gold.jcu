@@ -18,6 +18,9 @@
 				<path>cheque</path>
 			</folderitem>
 			<folderitem>
+				<path>emi</path>
+			</folderitem>
+			<folderitem>
 				<path>gold</path>
 			</folderitem>
 			<folderitem>
@@ -37,18 +40,4 @@
 			</folderitem>
 		</project>
 	</projects>
-	<open_files>
-		<docitem>
-			<path>billing\billingBean.java</path>
-			<source>true</source>
-			<index>0</index>
-			<active>false</active>
-		</docitem>
-		<docitem>
-			<path>gold\goldBillingBean.java</path>
-			<source>true</source>
-			<index>1</index>
-			<active>true</active>
-		</docitem>
-	</open_files>
 </workspace_user>

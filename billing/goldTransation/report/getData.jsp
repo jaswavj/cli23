@@ -243,33 +243,44 @@ try {
         String fromDateTime = fromDate + " 00:00:00";
         String toDateTime = toDate + " 23:59:59";
 
-        double runningOpening = 0;
-        ps = con.prepareStatement(
-            "SELECT COALESCE(SUM(COALESCE(gtl.in_amount, 0) - COALESCE(gtl.out_amount, 0)), 0) AS opening_balance " +
-            "FROM gold_transaction_ledger gtl " +
-            "LEFT JOIN gold_trasaction gt ON gt.id = gtl.bill_id " +
-            "WHERE gtl.is_cancelled = 0 " +
-            "  AND (gtl.customer_id IS NOT NULL OR COALESCE(gtl.is_opening_balance, 0) = 1) " +
-            "  AND ( " +
-            "       ((gtl.is_sale = 1 OR gtl.is_purchase = 1) AND COALESCE(gt.is_cancelled, 0) = 0) " +
-            "       OR (gtl.is_sale = 0 AND gtl.is_purchase = 0) " +
-            "       OR COALESCE(gtl.is_opening_balance, 0) = 1 " +
-            "  ) " +
-            "  AND gtl.date_time < ?");
-        ps.setString(1, fromDateTime);
-        rs = ps.executeQuery();
-        if (rs.next()) {
-            runningOpening = rs.getDouble("opening_balance");
-        }
-        if (rs != null) try { rs.close(); } catch (Exception e) {}
-        if (ps != null) try { ps.close(); } catch (Exception e) {}
-
-        ps = con.prepareStatement(
+        String openClosingSql =
             "SELECT gtl.id, gtl.bill_id, gtl.customer_id, c.name AS customer_name, " +
             "       gtl.bill_amount, gtl.in_amount, gtl.out_amount, gtl.notes, gtl.date_time, " +
             "       gtl.is_sale, gtl.is_purchase, COALESCE(gtl.is_opening_balance, 0) AS is_opening_balance, " +
             "       COALESCE(gtl.is_balance_collection, 0) AS is_balance_collection, " +
-            "       COALESCE(gtl.is_pay_or_collect, 0) AS is_pay_or_collect " +
+            "       COALESCE(gtl.is_pay_or_collect, 0) AS is_pay_or_collect, " +
+            "       CASE " +
+            "         WHEN COALESCE(gtl.is_opening_balance, 0) = 1 THEN " +
+            "           (SELECT COALESCE(SUM(gp.amount), 0) FROM gold_trasaction_payment gp " +
+            "            WHERE COALESCE(gp.is_opening_balance, 0) = 1 " +
+            "              AND gp.bill_date = DATE(gtl.date_time) " +
+            "              AND gp.bill_time = TIME(gtl.date_time) " +
+            "              AND LOWER(COALESCE(gp.payment_mode, '')) = 'cash') " +
+            "         WHEN gtl.is_sale = 1 AND gtl.bill_id IS NOT NULL THEN " +
+            "           (SELECT COALESCE(SUM(gp.amount), 0) FROM gold_trasaction_payment gp " +
+            "            WHERE gp.bill_id = gtl.bill_id AND LOWER(COALESCE(gp.payment_mode, '')) = 'cash') " +
+            "         WHEN COALESCE(gtl.is_balance_collection, 0) = 1 AND COALESCE(gtl.in_amount, 0) > 0 THEN " +
+            "           (SELECT COALESCE(SUM(gp.amount), 0) FROM gold_trasaction_payment gp " +
+            "            WHERE COALESCE(gp.is_balance_collection, 0) = 1 " +
+            "              AND gp.customer_id = gtl.customer_id " +
+            "              AND gp.is_pay_or_collect = gtl.is_pay_or_collect " +
+            "              AND gp.date_time BETWEEN DATE_SUB(gtl.date_time, INTERVAL 10 SECOND) AND DATE_ADD(gtl.date_time, INTERVAL 10 SECOND) " +
+            "              AND LOWER(COALESCE(gp.payment_mode, '')) = 'cash') " +
+            "         ELSE 0 " +
+            "       END AS cash_in, " +
+            "       CASE " +
+            "         WHEN gtl.is_purchase = 1 AND gtl.bill_id IS NOT NULL THEN " +
+            "           (SELECT COALESCE(SUM(gp.amount), 0) FROM gold_trasaction_payment gp " +
+            "            WHERE gp.bill_id = gtl.bill_id AND LOWER(COALESCE(gp.payment_mode, '')) = 'cash') " +
+            "         WHEN COALESCE(gtl.is_balance_collection, 0) = 1 AND COALESCE(gtl.out_amount, 0) > 0 THEN " +
+            "           (SELECT COALESCE(SUM(gp.amount), 0) FROM gold_trasaction_payment gp " +
+            "            WHERE COALESCE(gp.is_balance_collection, 0) = 1 " +
+            "              AND gp.customer_id = gtl.customer_id " +
+            "              AND gp.is_pay_or_collect = gtl.is_pay_or_collect " +
+            "              AND gp.date_time BETWEEN DATE_SUB(gtl.date_time, INTERVAL 10 SECOND) AND DATE_ADD(gtl.date_time, INTERVAL 10 SECOND) " +
+            "              AND LOWER(COALESCE(gp.payment_mode, '')) = 'cash') " +
+            "         ELSE 0 " +
+            "       END AS cash_out " +
             "FROM gold_transaction_ledger gtl " +
             "LEFT JOIN gold_trasaction gt ON gt.id = gtl.bill_id " +
             "LEFT JOIN customers c ON c.id = gtl.customer_id " +
@@ -280,56 +291,73 @@ try {
             "       OR (gtl.is_sale = 0 AND gtl.is_purchase = 0) " +
             "       OR COALESCE(gtl.is_opening_balance, 0) = 1 " +
             "  ) " +
-            "  AND gtl.date_time BETWEEN ? AND ? " +
-            "ORDER BY gtl.date_time ASC, gtl.id ASC");
-        ps.setString(1, fromDateTime);
-        ps.setString(2, toDateTime);
+            "  AND gtl.date_time <= ? " +
+            "ORDER BY gtl.date_time ASC, gtl.id ASC";
+
+        ps = con.prepareStatement(openClosingSql);
+        ps.setString(1, toDateTime);
         rs = ps.executeQuery();
 
+        double runningOpening = 0;
         double sumIn = 0;
         double sumOut = 0;
-        double firstOpening = runningOpening;
-        double lastClosing = runningOpening;
+        double firstOpening = 0;
+        double lastClosing = 0;
+        boolean firstOpeningSet = false;
 
         while (rs.next()) {
-            JSONObject row = new JSONObject();
-
-            int customerIdVal = rs.getInt("customer_id");
-            boolean customerNull = rs.wasNull();
-            int isSale = rs.getInt("is_sale");
-            int isPurchase = rs.getInt("is_purchase");
-            int isOpeningBalance = rs.getInt("is_opening_balance");
-            double billAmount = rs.getDouble("bill_amount");
-            double inAmount = rs.getDouble("in_amount");
-            double outAmount = rs.getDouble("out_amount");
+            String rowDateTime = rs.getString("date_time");
+            double cashIn = rs.getDouble("cash_in");
+            double cashOut = rs.getDouble("cash_out");
             double opening = runningOpening;
-            double effect = inAmount - outAmount;
+            double effect = cashIn - cashOut;
             double closing = opening + effect;
             runningOpening = closing;
-            lastClosing = closing;
 
-            row.put("id", rs.getInt("id"));
-            row.put("billId", rs.getInt("bill_id"));
-            row.put("customerId", customerNull ? null : new Integer(customerIdVal));
-            row.put("customerName", rs.getString("customer_name"));
-            row.put("billAmount", billAmount);
-            row.put("inAmount", inAmount);
-            row.put("outAmount", outAmount);
-            row.put("openingBalance", opening);
-            row.put("closingBalance", closing);
-            row.put("effect", effect);
-            row.put("isOpeningBalance", isOpeningBalance);
-            row.put("isSale", isSale);
-            row.put("isPurchase", isPurchase);
-            row.put("isBalanceCollection", rs.getInt("is_balance_collection"));
-            row.put("isPayOrCollect", rs.getInt("is_pay_or_collect"));
-            row.put("txnType", isOpeningBalance == 1 ? "OPENING" : (isSale == 1 ? "SALE" : (isPurchase == 1 ? "PURCHASE" : (inAmount > 0 ? "COLLECT" : (outAmount > 0 ? "PAY" : "-")))));
-            row.put("notes", rs.getString("notes"));
-            row.put("dateTime", rs.getString("date_time"));
-            rows.add(row);
+            if (rowDateTime != null && rowDateTime.compareTo(fromDateTime) >= 0) {
+                if (!firstOpeningSet) {
+                    firstOpening = opening;
+                    firstOpeningSet = true;
+                }
+                lastClosing = closing;
 
-            sumIn += inAmount;
-            sumOut += outAmount;
+                JSONObject row = new JSONObject();
+                int customerIdVal = rs.getInt("customer_id");
+                boolean customerNull = rs.wasNull();
+                int isSale = rs.getInt("is_sale");
+                int isPurchase = rs.getInt("is_purchase");
+                int isOpeningBalance = rs.getInt("is_opening_balance");
+                double ledgerIn = rs.getDouble("in_amount");
+                double ledgerOut = rs.getDouble("out_amount");
+
+                row.put("id", rs.getInt("id"));
+                row.put("billId", rs.getInt("bill_id"));
+                row.put("customerId", customerNull ? null : new Integer(customerIdVal));
+                row.put("customerName", rs.getString("customer_name"));
+                row.put("billAmount", rs.getDouble("bill_amount"));
+                row.put("inAmount", cashIn);
+                row.put("outAmount", cashOut);
+                row.put("openingBalance", opening);
+                row.put("closingBalance", closing);
+                row.put("effect", effect);
+                row.put("isOpeningBalance", isOpeningBalance);
+                row.put("isSale", isSale);
+                row.put("isPurchase", isPurchase);
+                row.put("isBalanceCollection", rs.getInt("is_balance_collection"));
+                row.put("isPayOrCollect", rs.getInt("is_pay_or_collect"));
+                row.put("txnType", isOpeningBalance == 1 ? "OPENING" : (isSale == 1 ? "SALE" : (isPurchase == 1 ? "PURCHASE" : (ledgerIn > 0 ? "COLLECT" : (ledgerOut > 0 ? "PAY" : "-")))));
+                row.put("notes", rs.getString("notes"));
+                row.put("dateTime", rowDateTime);
+                rows.add(row);
+
+                sumIn += cashIn;
+                sumOut += cashOut;
+            }
+        }
+
+        if (!firstOpeningSet) {
+            firstOpening = runningOpening;
+            lastClosing = runningOpening;
         }
 
         JSONObject totals = new JSONObject();
@@ -895,7 +923,15 @@ try {
     out.print(resp.toString());
 } catch (Exception e) {
     resp.put("success", false);
-    resp.put("message", "Unable to load report: " + e.getMessage());
+    String errPrefix = "Unable to load report: ";
+    if ("save_opening_balance".equalsIgnoreCase(mode)) {
+        errPrefix = "Unable to save opening balance: ";
+    } else if ("cancel_open_closing".equalsIgnoreCase(mode)) {
+        errPrefix = "Unable to cancel entry: ";
+    } else if ("credit_settle".equalsIgnoreCase(mode)) {
+        errPrefix = "Unable to settle credit: ";
+    }
+    resp.put("message", errPrefix + e.getMessage());
     out.print(resp.toString());
 } finally {
     if (rs != null) try { rs.close(); } catch (Exception e) {}

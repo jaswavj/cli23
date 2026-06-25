@@ -100,6 +100,18 @@ for (int i = 0; i < vecPer.size(); i++) {
     </a>
     <% } %>
 
+    <!-- Permission 2: Bank Management -->
+    <% if (permissions.contains(2)) { %>
+    <a href="<%=request.getContextPath()%>/product/master/bankManage/page.jsp" class="sidebar-item">
+      <i class="fas fa-building-columns"></i>
+      <span>Bank Management</span>
+    </a>
+    <a href="<%=request.getContextPath()%>/emi/entry/page.jsp" class="sidebar-item">
+      <i class="fas fa-calendar-check"></i>
+      <span>EMI Entry</span>
+    </a>
+    <% } %>
+
     <!-- Permission 2: Master menu (Customer & Bank) -->
     <% if (permissions.contains(2)) { %>
     <div class="sidebar-dropdown">
@@ -147,6 +159,7 @@ for (int i = 0; i < vecPer.size(); i++) {
         <a href="<%=request.getContextPath()%>/admin/userCreate/page.jsp" class="sidebar-subitem">Create User</a>
         <a href="<%=request.getContextPath()%>/admin/permission/page.jsp" class="sidebar-subitem">Module Permission</a>
         <a href="<%=request.getContextPath()%>/admin/changePassword/changePassword.jsp" class="sidebar-subitem">Change Password</a>
+        <a href="<%=request.getContextPath()%>/admin/report/cancelReport/page.jsp" class="sidebar-subitem">Cancel Report</a>
         <% } %>
       </div>
     </div>

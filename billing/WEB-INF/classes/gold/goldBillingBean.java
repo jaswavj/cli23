@@ -704,6 +704,26 @@ public class goldBillingBean {
                 }
             }
 
+            for (int i = 0; i < payments.size(); i++) {
+                Vector pay = (Vector) payments.elementAt(i);
+                String paymentMode = String.valueOf(pay.elementAt(0));
+                int paymentBank = 0;
+                try { paymentBank = Integer.parseInt(String.valueOf(pay.elementAt(1))); } catch (Exception ex) { }
+                double amount = parseD(pay.elementAt(2));
+                if (amount <= 0 || paymentBank <= 0 || !isBankPaymentMode(paymentMode)) {
+                    continue;
+                }
+                double bankDelta = 0.0;
+                if (isSale) {
+                    bankDelta = amount;
+                } else if (isPurchase) {
+                    bankDelta = -amount;
+                }
+                if (bankDelta != 0.0) {
+                    applyConfigureBankBalanceChange(con, paymentBank, bankDelta, isPurchase);
+                }
+            }
+
             // 6) Update gold_stock in the same transaction (prods_id = 1)
             double deltaQty = isPurchase ? totalQty : (isSale ? -totalQty : 0.0);
             if (deltaQty != 0.0) {
@@ -1302,8 +1322,8 @@ public class goldBillingBean {
             if (bankId > 0) {
                 psBankLedger = con.prepareStatement(
                     "INSERT INTO bank_ledger " +
-                    "(bill_id, bank_id, in_amount, out_amount, notes, user_id, date_time, is_opening_balance) " +
-                    "VALUES (?, ?, ?, ?, ?, ?, NOW(), 1)");
+                    "(bill_id, bank_id, in_amount, out_amount, notes, user_id, date_time) " +
+                    "VALUES (?, ?, ?, ?, ?, ?, NOW())");
                 psBankLedger.setInt(1, 0);
                 psBankLedger.setInt(2, bankId);
                 psBankLedger.setDouble(3, amount);
@@ -1315,6 +1335,10 @@ public class goldBillingBean {
                 }
                 close(null, psBankLedger, null);
                 psBankLedger = null;
+
+                if (isBankPaymentMode(pm)) {
+                    applyConfigureBankBalanceChange(con, bankId, amount, false);
+                }
             }
 
             psLedger = con.prepareStatement(
@@ -1480,6 +1504,7 @@ public class goldBillingBean {
 
                 reverseGoldTransactionStock(con, billId, isSale, isPurchase, userId, customerNull ? 0 : customerIdVal, cancelReason);
                 reverseCustomerAccountForCancelledTransaction(con, billId);
+                reverseBankPaymentsForCancelledTransaction(con, billId, isSale, isPurchase);
 
                 psUpdateBill = con.prepareStatement(
                     "UPDATE gold_trasaction SET is_cancelled = 1, cancel_user = ?, cancel_date_time = NOW() " +
@@ -1501,6 +1526,7 @@ public class goldBillingBean {
                 java.sql.Time billTime = txnDateTime == null ? null : new java.sql.Time(txnDateTime.getTime());
 
                 if (isOpeningBalance == 1) {
+                    reverseBankPaymentsForOpeningBalanceCancel(con, billDate, billTime, notes);
                     psDeletePayment = con.prepareStatement(
                         "DELETE FROM gold_trasaction_payment " +
                         "WHERE is_opening_balance = 1 AND bill_date = ? AND bill_time = ?");
@@ -1958,6 +1984,242 @@ public class goldBillingBean {
             ps.setInt(3, customerId);
             if (ps.executeUpdate() <= 0) {
                 throw new Exception("Failed to reverse customer account for cancelled entry");
+            }
+        } finally {
+            close(rs, ps, null);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // CANCEL REPORT
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * Gold transaction cancel report for date range (by cancel_date_time).
+     * Each row: [id, cancelType, billId, ledgerId, customerName, billAmount, inAmount, outAmount,
+     *            originalNotes, txnDate, txnTime, cancelReason, cancelDate, cancelTime, cancelUser]
+     */
+    public Vector getGoldTransactionCancelReport(String fromDate, String toDate) throws Exception {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        Vector rows = new Vector();
+
+        try {
+            con = getConn();
+            ps = con.prepareStatement(
+                "SELECT gtc.id, gtc.cancel_type, gtc.bill_id, gtc.ledger_id, " +
+                "       COALESCE(c.name, '-') AS customer_name, " +
+                "       gtc.bill_amount, gtc.in_amount, gtc.out_amount, COALESCE(gtc.notes, '') AS notes, " +
+                "       DATE_FORMAT(gtc.txn_date_time, '%d-%m-%Y') AS txn_date, " +
+                "       TIME_FORMAT(gtc.txn_date_time, '%H:%i:%s') AS txn_time, " +
+                "       COALESCE(gtc.cancel_reason, '') AS cancel_reason, " +
+                "       DATE_FORMAT(gtc.cancel_date_time, '%d-%m-%Y') AS cancel_date, " +
+                "       TIME_FORMAT(gtc.cancel_date_time, '%H:%i:%s') AS cancel_time, " +
+                "       COALESCE(u.user_name, '-') AS cancel_user " +
+                "FROM gold_trasaction_cancel gtc " +
+                "LEFT JOIN customers c ON c.id = gtc.customer_id " +
+                "LEFT JOIN users u ON u.id = gtc.cancel_user " +
+                "WHERE DATE(gtc.cancel_date_time) BETWEEN ? AND ? " +
+                "ORDER BY gtc.cancel_date_time DESC, gtc.id DESC");
+            ps.setString(1, fromDate);
+            ps.setString(2, toDate);
+            rs = ps.executeQuery();
+
+            while (rs.next()) {
+                Vector row = new Vector();
+                row.addElement(rs.getString("id"));
+                row.addElement(rs.getString("cancel_type"));
+                int billId = rs.getInt("bill_id");
+                row.addElement(rs.wasNull() || billId <= 0 ? "-" : String.valueOf(billId));
+                int ledgerId = rs.getInt("ledger_id");
+                row.addElement(rs.wasNull() || ledgerId <= 0 ? "-" : String.valueOf(ledgerId));
+                row.addElement(rs.getString("customer_name"));
+                row.addElement(rs.getString("bill_amount"));
+                row.addElement(rs.getString("in_amount"));
+                row.addElement(rs.getString("out_amount"));
+                row.addElement(rs.getString("notes"));
+                row.addElement(rs.getString("txn_date") == null ? "-" : rs.getString("txn_date"));
+                row.addElement(rs.getString("txn_time") == null ? "-" : rs.getString("txn_time"));
+                row.addElement(rs.getString("cancel_reason"));
+                row.addElement(rs.getString("cancel_date"));
+                row.addElement(rs.getString("cancel_time"));
+                row.addElement(rs.getString("cancel_user"));
+                rows.addElement(row);
+            }
+            return rows;
+        } finally {
+            close(rs, ps, con);
+        }
+    }
+
+    private boolean isBankPaymentMode(String paymentMode) {
+        if (paymentMode == null) {
+            return false;
+        }
+        String pm = paymentMode.trim().toLowerCase();
+        return "gpay".equals(pm) || "bank".equals(pm);
+    }
+
+    /**
+     * Update configure_bank_details.balance.
+     * Positive delta adds to balance (sale / opening GPay-Bank inflow).
+     * Negative delta reduces balance (purchase GPay-Bank outflow).
+     */
+    private void reverseBankPaymentsForCancelledTransaction(
+            Connection con,
+            int billId,
+            int isSale,
+            int isPurchase) throws Exception {
+
+        if (billId <= 0) {
+            return;
+        }
+
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            ps = con.prepareStatement(
+                "SELECT payment_mode, payment_bank, amount FROM gold_trasaction_payment WHERE bill_id = ?");
+            ps.setInt(1, billId);
+            rs = ps.executeQuery();
+
+            while (rs.next()) {
+                String paymentMode = rs.getString("payment_mode");
+                int paymentBank = rs.getInt("payment_bank");
+                if (rs.wasNull()) {
+                    paymentBank = 0;
+                }
+                double amount = rs.getDouble("amount");
+
+                if (paymentBank <= 0 || amount <= 0 || !isBankPaymentMode(paymentMode)) {
+                    continue;
+                }
+
+                double delta = 0.0;
+                if (isSale == 1) {
+                    delta = -amount;
+                } else if (isPurchase == 1) {
+                    delta = amount;
+                }
+
+                if (delta != 0.0) {
+                    applyConfigureBankBalanceChange(con, paymentBank, delta, isSale == 1);
+                }
+            }
+
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            ps = con.prepareStatement("DELETE FROM bank_ledger WHERE bill_id = ?");
+            ps.setInt(1, billId);
+            ps.executeUpdate();
+        } finally {
+            close(rs, ps, null);
+        }
+    }
+
+    private void reverseBankPaymentsForOpeningBalanceCancel(
+            Connection con,
+            java.sql.Date billDate,
+            java.sql.Time billTime,
+            String notes) throws Exception {
+
+        if (billDate == null || billTime == null) {
+            return;
+        }
+
+        String ledgerNotes = (notes == null || notes.trim().length() == 0) ? "Opening Balance" : notes.trim();
+
+        PreparedStatement ps = null;
+        PreparedStatement psDelete = null;
+        ResultSet rs = null;
+
+        try {
+            ps = con.prepareStatement(
+                "SELECT payment_mode, payment_bank, amount FROM gold_trasaction_payment " +
+                "WHERE is_opening_balance = 1 AND bill_date = ? AND bill_time = ?");
+            ps.setDate(1, billDate);
+            ps.setTime(2, billTime);
+            rs = ps.executeQuery();
+
+            while (rs.next()) {
+                String paymentMode = rs.getString("payment_mode");
+                int paymentBank = rs.getInt("payment_bank");
+                if (rs.wasNull()) {
+                    paymentBank = 0;
+                }
+                double amount = rs.getDouble("amount");
+
+                if (paymentBank <= 0 || amount <= 0 || !isBankPaymentMode(paymentMode)) {
+                    continue;
+                }
+
+                applyConfigureBankBalanceChange(con, paymentBank, -amount, true);
+
+                psDelete = con.prepareStatement(
+                    "DELETE FROM bank_ledger WHERE id = (" +
+                    "SELECT id FROM (" +
+                    "SELECT id FROM bank_ledger WHERE bill_id = 0 AND bank_id = ? " +
+                    "AND in_amount = ? AND out_amount = 0 AND notes = ? " +
+                    "ORDER BY id DESC LIMIT 1" +
+                    ") tmp)");
+                psDelete.setInt(1, paymentBank);
+                psDelete.setDouble(2, amount);
+                psDelete.setString(3, ledgerNotes);
+                psDelete.executeUpdate();
+                close(null, psDelete, null);
+                psDelete = null;
+            }
+        } finally {
+            close(rs, ps, null);
+            close(null, psDelete, null);
+        }
+    }
+
+    private void applyConfigureBankBalanceChange(
+            Connection con,
+            int bankId,
+            double delta,
+            boolean checkInsufficient) throws Exception {
+
+        if (bankId <= 0 || Math.abs(delta) < 0.0001) {
+            return;
+        }
+
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        try {
+            ps = con.prepareStatement(
+                "SELECT COALESCE(balance, 0) AS balance, name FROM configure_bank_details " +
+                "WHERE id = ? AND is_blocked = 0 FOR UPDATE");
+            ps.setInt(1, bankId);
+            rs = ps.executeQuery();
+
+            if (!rs.next()) {
+                throw new Exception("Selected bank is not available");
+            }
+
+            double currentBalance = rs.getDouble("balance");
+            String bankName = rs.getString("name");
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            if (checkInsufficient && delta < 0 && (currentBalance + delta) < -0.0001) {
+                throw new Exception("Insufficient bank balance in "
+                    + (bankName == null ? "selected bank" : bankName)
+                    + ". Available: " + String.format("%.2f", currentBalance));
+            }
+
+            ps = con.prepareStatement(
+                "UPDATE configure_bank_details SET balance = COALESCE(balance, 0) + ? WHERE id = ?");
+            ps.setDouble(1, delta);
+            ps.setInt(2, bankId);
+            if (ps.executeUpdate() <= 0) {
+                throw new Exception("Failed to update bank balance");
             }
         } finally {
             close(rs, ps, null);

@@ -403,7 +403,7 @@
         <div class="gr-tabs" id="reportTabs">
             <button type="button" class="gr-tab active" data-type="creditList">Credit List</button>
             <button type="button" class="gr-tab" data-type="transaction">Transaction</button>
-            <button type="button" class="gr-tab" data-type="openClosing">Open/Closing Balance</button>
+            <button type="button" class="gr-tab" data-type="openClosing">Cash Open/Closing Balance</button>
             <button type="button" class="gr-tab" data-type="stockTxn">Stock Transaction List</button>
             <button type="button" class="gr-tab" data-type="profitLoss">Profit/Loss</button>
         </div>
@@ -425,16 +425,6 @@
                 <tfoot id="reportFoot"></tfoot>
             </table>
         </div>
-        <div id="txnPaidSplitWrap" style="display:none;margin-top:12px;">
-            <h6 class="gr-title"><i class="fa-solid fa-wallet me-2"></i>Customer-wise Cash / GPay Paid</h6>
-            <div class="gr-table-wrap">
-                <table class="gr-table gr-table-medium" id="txnPaidSplitTable">
-                    <thead id="txnPaidSplitHead"></thead>
-                    <tbody id="txnPaidSplitBody"></tbody>
-                    <tfoot id="txnPaidSplitFoot"></tfoot>
-                </table>
-            </div>
-        </div>
     </div>
 </div>
 
@@ -455,10 +445,6 @@
         reportTable: document.getElementById("reportTable"),
         reportBody: document.getElementById("reportBody"),
         reportFoot: document.getElementById("reportFoot"),
-        txnPaidSplitWrap: document.getElementById("txnPaidSplitWrap"),
-        txnPaidSplitHead: document.getElementById("txnPaidSplitHead"),
-        txnPaidSplitBody: document.getElementById("txnPaidSplitBody"),
-        txnPaidSplitFoot: document.getElementById("txnPaidSplitFoot"),
         cardCurrentStock: document.getElementById("cardCurrentStock"),
         cardTotalCredit: document.getElementById("cardTotalCredit"),
         cardCustomerDue: document.getElementById("cardCustomerDue")
@@ -718,38 +704,6 @@
         var cols = getColumnsByType(activeType);
         el.reportBody.innerHTML = '<tr><td colspan="' + cols.length + '" class="gr-empty">' + message + '</td></tr>';
         el.reportFoot.innerHTML = "";
-        el.txnPaidSplitWrap.style.display = "none";
-        el.txnPaidSplitHead.innerHTML = "";
-        el.txnPaidSplitBody.innerHTML = "";
-        el.txnPaidSplitFoot.innerHTML = "";
-    }
-
-    function renderTransactionPaidSplit(rows, totals) {
-        el.txnPaidSplitWrap.style.display = "";
-        el.txnPaidSplitHead.innerHTML = "<tr>" +
-            "<th>#</th>" +
-            "<th>Customer Name</th>" +
-            "<th class='gr-right'>Cash Paid</th>" +
-            "<th class='gr-right'>GPay Paid</th>" +
-            "</tr>";
-
-        var body = "";
-        rows.forEach(function(r, idx) {
-            body += "<tr>" +
-                "<td>" + (idx + 1) + "</td>" +
-                "<td>" + (r.customerName || "") + "</td>" +
-                "<td class='gr-right'>" + money(r.cashPaid) + "</td>" +
-                "<td class='gr-right'>" + money(r.gpayPaid) + "</td>" +
-                "</tr>";
-        });
-        el.txnPaidSplitBody.innerHTML = body;
-
-        var t = totals || {};
-        el.txnPaidSplitFoot.innerHTML = "<tr>" +
-            "<td colspan='2'>Total</td>" +
-            "<td class='gr-right'>" + money(t.cashPaid) + "</td>" +
-            "<td class='gr-right'>" + money(t.gpayPaid) + "</td>" +
-            "</tr>";
     }
 
     function getTxnPaidTooltipNode() {
@@ -835,13 +789,10 @@
             "<td class='gr-right'>" + tm(t.saleTM) + "</td>" +
             "</tr>";
 
-        renderTransactionPaidSplit(rows, t);
-
         el.reportMeta.textContent = (data.count || rows.length) + " active customers loaded for " + toDisplayPeriod(data.periodLabel) + ".";
     }
 
     function renderCredit(data) {
-        el.txnPaidSplitWrap.style.display = "none";
         var rows = data.rows || [];
         var labelText = "credit customers";
 
@@ -1260,7 +1211,6 @@
     }
 
     function renderStockTxn(data) {
-        el.txnPaidSplitWrap.style.display = "none";
         var rows = data.rows || [];
         if (!rows.length) {
             renderEmpty("No stock transactions for selected date.");
@@ -1302,7 +1252,6 @@
     }
 
     function renderOpenClosing(data) {
-        el.txnPaidSplitWrap.style.display = "none";
         var rows = data.rows || [];
         if (!rows.length) {
             renderEmpty("No open/closing rows for selected date.");
@@ -1437,7 +1386,6 @@
     }
 
     function renderProfitLoss(data) {
-        el.txnPaidSplitWrap.style.display = "none";
         var rows = data.rows || [];
         if (!rows.length) {
             renderEmpty("No profit/loss rows for selected date.");

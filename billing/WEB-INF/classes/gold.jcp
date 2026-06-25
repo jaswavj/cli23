@@ -24,7 +24,7 @@
 		</runtime>
 	</runtimes>
 	<libraries>
-		<library_ref>lib</library_ref>
+		<library_ref>libr</library_ref>
 	</libraries>
 	<files>
 		<include>
@@ -114,6 +114,10 @@
 			<fileitem>
 				<path>print\printer.properties</path>
 				<folder>print</folder>
+			</fileitem>
+			<fileitem>
+				<path>product\emiBean.java</path>
+				<folder>product</folder>
 			</fileitem>
 			<fileitem>
 				<path>product\productBean.java</path>

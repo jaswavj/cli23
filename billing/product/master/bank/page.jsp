@@ -78,6 +78,7 @@ String type = request.getParameter("type");
                                     <th>#</th>
                                     <th>Functions</th>
                                     <th>Bank Name</th>
+                                    <th class="text-end">Balance</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -87,6 +88,7 @@ String type = request.getParameter("type");
                                     Vector vec1 = (Vector) vec.get(i);
                                     String bankName = vec1.elementAt(0).toString();
                                     int id = Integer.parseInt(vec1.elementAt(1).toString());
+                                    String bankBalance = vec1.size() > 2 ? vec1.elementAt(2).toString() : "0.00";
                                     String safeName = bankName.replace("\\", "\\\\").replace("'", "\\'").replace("\n", " ");
                                 %>
                                 <tr>
@@ -95,6 +97,7 @@ String type = request.getParameter("type");
                                         <button type="button" class="btn btn-sm btn-outline-warning btn-edit" onclick="populateForm(<%=id%>, '<%=safeName%>')">Edit</button>
                                     </td>
                                     <td><%=bankName%></td>
+                                    <td class="text-end"><%=bankBalance%></td>
                                 </tr>
                                 <%
                                 }

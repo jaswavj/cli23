@@ -33,12 +33,14 @@ CREATE TABLE `bank_ledger` (
   KEY `idx_bl_bill` (`bill_id`),
   KEY `idx_bl_bank` (`bank_id`),
   KEY `idx_bl_datetime` (`date_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*Data for the table `bank_ledger` */
 
 insert  into `bank_ledger`(`id`,`bill_id`,`bank_id`,`in_amount`,`out_amount`,`notes`,`user_id`,`date_time`) values 
-(1,1,1,0.00,100000.00,'Gold transaction #1 (PURCHASE)',1,'2026-06-25 15:03:48');
+(1,0,3,500000.00,0.00,'opening bal',1,'2026-06-25 17:08:01'),
+(2,1,3,0.00,240000.00,'Gold transaction #1 (PURCHASE)',1,'2026-06-25 17:08:50'),
+(3,2,3,30000.00,0.00,'Gold transaction #2 (SALE)',1,'2026-06-25 17:09:57');
 
 /*Table structure for table `company_details` */
 
@@ -69,17 +71,18 @@ CREATE TABLE `configure_bank_details` (
   `id` int unsigned NOT NULL AUTO_INCREMENT,
   `name` varchar(255) NOT NULL,
   `is_blocked` tinyint unsigned NOT NULL DEFAULT '0',
+  `balance` decimal(14,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=latin1;
 
 /*Data for the table `configure_bank_details` */
 
-insert  into `configure_bank_details`(`id`,`name`,`is_blocked`) values 
-(1,'SBI BANK',0),
-(2,'CANARA BANK',0),
-(3,'AXIS BANK',0),
-(4,'IOB BANK',0),
-(5,'DFG',0);
+insert  into `configure_bank_details`(`id`,`name`,`is_blocked`,`balance`) values 
+(1,'SBI BANK',0,0.00),
+(2,'CANARA BANK',0,0.00),
+(3,'AXIS BANK',0,290000.00),
+(4,'IOB BANK',0,0.00),
+(5,'DFG',0,0.00);
 
 /*Table structure for table `configure_payment_type` */
 
@@ -110,14 +113,13 @@ CREATE TABLE `customer_account` (
   `balance` decimal(10,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id`),
   UNIQUE KEY `customer_id` (`customer_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*Data for the table `customer_account` */
 
 insert  into `customer_account`(`id`,`customer_id`,`advance`,`balance`) values 
-(1,1,140000.00,0.00),
-(2,2,0.00,0.00),
-(3,3,0.00,11000.00);
+(1,1,0.00,0.00),
+(2,2,0.00,0.00);
 
 /*Table structure for table `customers` */
 
@@ -148,6 +150,63 @@ insert  into `customers`(`id`,`name`,`phone_number`,`address`,`date`,`time`,`is_
 (1,'JASWA VIJAY','9597451419','assaaaaaaaaaaaa\r\n sdddddddddddddddddddddddddddd dsds','2026-06-10','21:47:48',0,1,'',0,NULL,NULL,0.00,1,0.000),
 (2,'JEBS','9898989898','no 10, Joseph colony, Thittuvaila,kanyakumari dist, Tamilnadi','2026-06-10','22:20:38',0,1,'',0,NULL,NULL,0.00,1,0.000),
 (3,'KRISH','23232332232332','wdsssssssss\r\nsfsfsfsf','2026-06-20','13:52:27',0,1,'',0,NULL,NULL,0.00,1,0.000);
+
+/*Table structure for table `emi_customer` */
+
+DROP TABLE IF EXISTS `emi_customer`;
+
+CREATE TABLE `emi_customer` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `customer_name` varchar(255) NOT NULL,
+  `phone_number` varchar(20) DEFAULT NULL,
+  `total_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `emi_type` varchar(10) NOT NULL DEFAULT 'borrow',
+  `emi_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `emi_months` int unsigned NOT NULL DEFAULT '0',
+  `due_day` tinyint unsigned NOT NULL DEFAULT '1',
+  `first_due_date` date NOT NULL,
+  `user_id` int NOT NULL,
+  `date_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `is_closed` tinyint(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_emi_customer_closed` (`is_closed`),
+  KEY `idx_emi_customer_name` (`customer_name`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+/*Data for the table `emi_customer` */
+
+insert  into `emi_customer`(`id`,`customer_name`,`phone_number`,`total_amount`,`emi_type`,`emi_amount`,`emi_months`,`due_day`,`first_due_date`,`user_id`,`date_time`,`is_closed`) values 
+(1,'jaswa','89898989',50000.00,'borrow',11000.00,5,3,'2026-07-03',1,'2026-06-25 18:04:38',0);
+
+/*Table structure for table `emi_installment` */
+
+DROP TABLE IF EXISTS `emi_installment`;
+
+CREATE TABLE `emi_installment` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `emi_customer_id` int unsigned NOT NULL,
+  `installment_no` int unsigned NOT NULL,
+  `due_date` date NOT NULL,
+  `emi_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `paid_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `paid_date` datetime DEFAULT NULL,
+  `paid_user_id` int DEFAULT NULL,
+  `is_paid` tinyint(1) NOT NULL DEFAULT '0',
+  PRIMARY KEY (`id`),
+  KEY `idx_emi_inst_customer` (`emi_customer_id`),
+  KEY `idx_emi_inst_due` (`due_date`),
+  KEY `idx_emi_inst_paid` (`is_paid`),
+  KEY `idx_emi_inst_customer_no` (`emi_customer_id`,`installment_no`)
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+/*Data for the table `emi_installment` */
+
+insert  into `emi_installment`(`id`,`emi_customer_id`,`installment_no`,`due_date`,`emi_amount`,`paid_amount`,`paid_date`,`paid_user_id`,`is_paid`) values 
+(1,1,1,'2026-07-03',11000.00,11000.00,'2026-06-25 18:06:17',1,1),
+(2,1,2,'2026-08-03',11000.00,0.00,NULL,NULL,0),
+(3,1,3,'2026-09-03',11000.00,0.00,NULL,NULL,0),
+(4,1,4,'2026-10-03',11000.00,0.00,NULL,NULL,0),
+(5,1,5,'2026-11-03',11000.00,0.00,NULL,NULL,0);
 
 /*Table structure for table `expense_entry` */
 
@@ -311,7 +370,7 @@ CREATE TABLE `gold_stock` (
 /*Data for the table `gold_stock` */
 
 insert  into `gold_stock`(`id`,`prods_id`,`stock`,`updated_at`) values 
-(1,1,23.000,'2026-06-25 15:06:06');
+(1,1,22.000,'2026-06-25 17:09:58');
 
 /*Table structure for table `gold_transaction_ledger` */
 
@@ -343,16 +402,15 @@ CREATE TABLE `gold_transaction_ledger` (
   KEY `idx_gtl_bill_amount` (`bill_amount`),
   KEY `idx_gtl_pay_collect` (`is_pay_or_collect`),
   KEY `idx_gtl_opening_balance` (`is_opening_balance`)
-) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*Data for the table `gold_transaction_ledger` */
 
 insert  into `gold_transaction_ledger`(`id`,`bill_id`,`customer_id`,`bill_amount`,`in_amount`,`out_amount`,`notes`,`date_time`,`user_id`,`is_sale`,`is_purchase`,`is_cancelled`,`is_balance_collection`,`is_pay_or_collect`,`is_opening_balance`,`cancel_user`,`cancel_date_time`) values 
-(1,NULL,NULL,500000.00,500000.00,0.00,'Opening Balance','2026-06-25 15:02:56',1,0,0,0,0,0,1,NULL,NULL),
-(2,1,1,240000.00,0.00,100000.00,'Gold transaction #1 (PURCHASE)','2026-06-25 15:03:48',1,0,1,0,0,0,0,NULL,NULL),
-(3,2,2,15000.00,14000.00,0.00,'Gold transaction #2 (SALE)','2026-06-25 15:04:51',1,1,0,0,0,0,0,NULL,NULL),
-(4,3,3,16000.00,0.00,0.00,'Gold transaction #3 (SALE)','2026-06-25 15:05:08',1,1,0,0,0,0,0,NULL,NULL),
-(5,NULL,3,5000.00,5000.00,0.00,'Credit settlement (COLLECT)','2026-06-25 15:05:36',1,0,0,0,1,2,0,NULL,NULL);
+(1,1,1,240000.00,0.00,240000.00,'Gold transaction #1 (PURCHASE)','2026-06-25 17:08:50',1,0,1,0,0,0,0,NULL,NULL),
+(2,2,2,32000.00,30000.00,0.00,'Gold transaction #2 (SALE)','2026-06-25 17:09:57',1,1,0,0,0,0,0,NULL,NULL),
+(3,NULL,2,2000.00,2000.00,0.00,'Credit settlement (COLLECT)','2026-06-25 17:10:11',1,0,0,0,1,2,0,NULL,NULL),
+(4,NULL,NULL,100000.00,100000.00,0.00,'Opening Balance','2026-06-25 17:16:37',1,0,0,0,0,0,1,NULL,NULL);
 
 /*Table structure for table `gold_trasaction` */
 
@@ -378,14 +436,13 @@ CREATE TABLE `gold_trasaction` (
   KEY `idx_gt_customer` (`customer_id`),
   KEY `idx_gt_user` (`user_id`),
   KEY `idx_gt_bill_date` (`bill_date`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*Data for the table `gold_trasaction` */
 
 insert  into `gold_trasaction`(`id`,`customer_id`,`user_id`,`bill_date`,`bill_time`,`enter_date_time`,`total`,`paid`,`balance`,`current_balance`,`is_sale`,`is_purchase`,`is_cancelled`,`cancel_user`,`cancel_date_time`) values 
-(1,1,1,'2026-06-25','15:03:48','2026-06-25 15:03:48',240000.00,100000.00,140000.00,-140000.00,0,1,0,NULL,NULL),
-(2,2,1,'2026-06-25','15:04:51','2026-06-25 15:04:51',15000.00,14000.00,1000.00,1000.00,1,0,1,1,'2026-06-25 15:06:06'),
-(3,3,1,'2026-06-25','15:05:08','2026-06-25 15:05:08',16000.00,0.00,16000.00,16000.00,1,0,0,NULL,NULL);
+(1,1,1,'2026-06-25','17:08:50','2026-06-25 17:08:51',240000.00,240000.00,0.00,0.00,0,1,0,NULL,NULL),
+(2,2,1,'2026-06-25','17:09:57','2026-06-25 17:09:58',32000.00,30000.00,2000.00,2000.00,1,0,0,NULL,NULL);
 
 /*Table structure for table `gold_trasaction_cancel` */
 
@@ -416,13 +473,9 @@ CREATE TABLE `gold_trasaction_cancel` (
   KEY `idx_gtc_customer` (`customer_id`),
   KEY `idx_gtc_cancel_type` (`cancel_type`),
   KEY `idx_gtc_cancel_dt` (`cancel_date_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*Data for the table `gold_trasaction_cancel` */
-
-insert  into `gold_trasaction_cancel`(`id`,`ledger_id`,`bill_id`,`customer_id`,`cancel_type`,`bill_amount`,`in_amount`,`out_amount`,`notes`,`txn_date_time`,`is_sale`,`is_purchase`,`is_opening_balance`,`is_balance_collection`,`is_pay_or_collect`,`cancel_user`,`cancel_date_time`,`cancel_reason`) values 
-(1,3,2,2,'SALE',15000.00,14000.00,0.00,'Gold transaction #2 (SALE)','2026-06-25 15:04:51',1,0,0,0,0,1,'2026-06-25 15:06:06','test'),
-(2,6,NULL,2,'COLLECT',1000.00,1000.00,0.00,'Credit settlement (COLLECT)','2026-06-25 15:05:45',0,0,0,1,2,1,'2026-06-25 15:06:16','test');
 
 /*Table structure for table `gold_trasaction_details` */
 
@@ -437,14 +490,13 @@ CREATE TABLE `gold_trasaction_details` (
   `total` decimal(14,2) NOT NULL DEFAULT '0.00',
   PRIMARY KEY (`id`),
   KEY `idx_gtd_bill` (`bill_id`)
-) ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*Data for the table `gold_trasaction_details` */
 
 insert  into `gold_trasaction_details`(`id`,`bill_id`,`particular`,`qty_gram`,`rate`,`total`) values 
-(1,1,'aaa',24.000,10000.00,240000.00),
-(2,2,'ss',1.000,15000.00,15000.00),
-(3,3,'sdd',1.000,16000.00,16000.00);
+(1,1,'aa',24.000,10000.00,240000.00),
+(2,2,'ss',2.000,16000.00,32000.00);
 
 /*Table structure for table `gold_trasaction_payment` */
 
@@ -473,18 +525,16 @@ CREATE TABLE `gold_trasaction_payment` (
   KEY `idx_gtp_datetime` (`date_time`),
   KEY `idx_gtp_pay_collect` (`is_pay_or_collect`),
   KEY `idx_gtp_opening_balance` (`is_opening_balance`)
-) ENGINE=InnoDB AUTO_INCREMENT=9 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*Data for the table `gold_trasaction_payment` */
 
 insert  into `gold_trasaction_payment`(`id`,`bill_id`,`customer_id`,`user_id`,`payment_mode`,`payment_bank`,`amount`,`bill_date`,`bill_time`,`date_time`,`is_balance_collection`,`is_pay_or_collect`,`is_opening_balance`) values 
-(1,NULL,NULL,1,'cash',NULL,500000.00,'2026-06-25','15:02:56','2026-06-25 15:02:56',0,0,1),
-(2,1,NULL,NULL,'gpay',1,100000.00,NULL,NULL,'2026-06-25 15:03:49',0,0,0),
-(3,1,NULL,NULL,'balance',NULL,140000.00,NULL,NULL,'2026-06-25 15:03:49',0,0,0),
-(4,2,NULL,NULL,'cash',NULL,14000.00,NULL,NULL,'2026-06-25 15:04:51',0,0,0),
-(5,2,NULL,NULL,'balance',NULL,1000.00,NULL,NULL,'2026-06-25 15:04:51',0,0,0),
-(6,3,NULL,NULL,'balance',NULL,16000.00,NULL,NULL,'2026-06-25 15:05:08',0,0,0),
-(7,NULL,3,1,'gpay',2,5000.00,'2026-06-25','15:05:36','2026-06-25 15:05:36',1,2,0);
+(1,1,NULL,NULL,'gpay',3,240000.00,NULL,NULL,'2026-06-25 17:08:51',0,0,0),
+(2,2,NULL,NULL,'gpay',3,30000.00,NULL,NULL,'2026-06-25 17:09:58',0,0,0),
+(3,2,NULL,NULL,'balance',NULL,2000.00,NULL,NULL,'2026-06-25 17:09:58',0,0,0),
+(4,NULL,2,1,'gpay',3,2000.00,'2026-06-25','17:10:11','2026-06-25 17:10:11',1,2,0),
+(5,NULL,NULL,1,'cash',NULL,100000.00,'2026-06-25','17:16:37','2026-06-25 17:16:37',0,0,1);
 
 /*Table structure for table `gold_trasaction_stock` */
 
@@ -505,15 +555,13 @@ CREATE TABLE `gold_trasaction_stock` (
   KEY `idx_gts_bill` (`bill_id`),
   KEY `idx_gts_customer` (`customer_id`),
   KEY `idx_gts_datetime` (`txn_date_time`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 /*Data for the table `gold_trasaction_stock` */
 
 insert  into `gold_trasaction_stock`(`id`,`bill_id`,`in_qty`,`out_qty`,`customer_id`,`rate`,`total`,`txn_date_time`,`user_id`,`notes`) values 
-(1,1,24.000,0.000,1,10000.00,240000.00,'2026-06-25 15:03:48',1,'Gold transaction #1 (PURCHASE)'),
-(2,2,0.000,1.000,2,15000.00,15000.00,'2026-06-25 15:04:51',1,'Gold transaction #2 (SALE)'),
-(3,3,0.000,1.000,3,16000.00,16000.00,'2026-06-25 15:05:08',1,'Gold transaction #3 (SALE)'),
-(4,2,1.000,0.000,2,15000.00,15000.00,'2026-06-25 15:06:06',1,'Cancelled SALE #2 - test');
+(1,1,24.000,0.000,1,10000.00,240000.00,'2026-06-25 17:08:50',1,'Gold transaction #1 (PURCHASE)'),
+(2,2,0.000,2.000,2,16000.00,32000.00,'2026-06-25 17:09:57',1,'Gold transaction #2 (SALE)');
 
 /*Table structure for table `gstin` */
 

@@ -3840,12 +3840,13 @@ public Vector getConfigureBankDetailsList() throws Exception {
 		con = util.DBConnectionManager.getConnectionFromPool();
 		Vector major = new Vector();
 		pt = con.prepareStatement(
-			"SELECT id, name FROM configure_bank_details WHERE is_blocked = 0 ORDER BY name");
+			"SELECT id, name, COALESCE(balance, 0) AS balance FROM configure_bank_details WHERE is_blocked = 0 ORDER BY name");
 		rs = pt.executeQuery();
 		while (rs.next()) {
 			Vector vec = new Vector();
 			vec.addElement(rs.getString("name"));
 			vec.addElement(rs.getString("id"));
+			vec.addElement(rs.getString("balance"));
 			major.addElement(vec);
 		}
 		return major;
@@ -4007,6 +4008,281 @@ public void blockBankDetail(int id) throws Exception {
 		}
 	}
 }
+
+public Vector getConfigureBankDetailById(int bankId) throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	ResultSet rs = null;
+	try {
+		con = util.DBConnectionManager.getConnectionFromPool();
+		Vector vec = new Vector();
+		pt = con.prepareStatement(
+			"SELECT id, name, COALESCE(balance, 0) AS balance FROM configure_bank_details " +
+			"WHERE id = ? AND is_blocked = 0");
+		pt.setInt(1, bankId);
+		rs = pt.executeQuery();
+		if (rs.next()) {
+			vec.addElement(rs.getString("name"));
+			vec.addElement(rs.getString("id"));
+			vec.addElement(rs.getString("balance"));
+		}
+		return vec;
+	} finally {
+		if (rs != null) {
+			try { rs.close(); } catch (SQLException e) { ; }
+			rs = null;
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
+
+public Vector getBankLedgerList(int bankId) throws Exception {
+	return getBankLedgerList(bankId, null, null);
+}
+
+public Vector getBankLedgerList(int bankId, String fromDate, String toDate) throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	ResultSet rs = null;
+	try {
+		con = util.DBConnectionManager.getConnectionFromPool();
+
+		java.util.ArrayList allRows = new java.util.ArrayList();
+		pt = con.prepareStatement(
+			"SELECT bl.id, bl.bill_id, bl.in_amount, bl.out_amount, bl.notes, bl.date_time, " +
+			"       COALESCE(u.fullName, u.user_name, '') AS user_name " +
+			"FROM bank_ledger bl " +
+			"LEFT JOIN users u ON u.id = bl.user_id " +
+			"WHERE bl.bank_id = ? " +
+			"ORDER BY bl.date_time ASC, bl.id ASC");
+		pt.setInt(1, bankId);
+		rs = pt.executeQuery();
+		while (rs.next()) {
+			Vector vec = new Vector();
+			vec.addElement(rs.getString("id"));
+			vec.addElement(rs.getString("bill_id"));
+			vec.addElement(rs.getString("in_amount"));
+			vec.addElement(rs.getString("out_amount"));
+			vec.addElement(rs.getString("notes") == null ? "" : rs.getString("notes"));
+			vec.addElement(rs.getString("date_time"));
+			vec.addElement(rs.getString("user_name"));
+			allRows.add(vec);
+		}
+		if (rs != null) {
+			try { rs.close(); } catch (SQLException e) { ; }
+			rs = null;
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+
+		String from = normalizeBankLedgerDate(fromDate);
+		String to = normalizeBankLedgerDate(toDate);
+		boolean hasFrom = from != null && from.length() > 0;
+		boolean hasTo = to != null && to.length() > 0;
+
+		double running = 0.0;
+		double openingBeforePeriod = 0.0;
+		double periodIn = 0.0;
+		double periodOut = 0.0;
+		java.util.ArrayList filtered = new java.util.ArrayList();
+
+		for (int i = 0; i < allRows.size(); i++) {
+			Vector vec = (Vector) allRows.get(i);
+			double inAmt = 0.0;
+			double outAmt = 0.0;
+			try { inAmt = Double.parseDouble(vec.elementAt(2).toString()); } catch (Exception ex) { }
+			try { outAmt = Double.parseDouble(vec.elementAt(3).toString()); } catch (Exception ex) { }
+
+			String rowDate = extractBankLedgerDate(vec.elementAt(5).toString());
+			running += inAmt - outAmt;
+
+			if (hasFrom && rowDate.compareTo(from) < 0) {
+				openingBeforePeriod = running;
+				continue;
+			}
+			if (hasTo && rowDate.compareTo(to) > 0) {
+				continue;
+			}
+
+			Vector outRow = new Vector();
+			for (int j = 0; j < vec.size(); j++) {
+				outRow.addElement(vec.elementAt(j));
+			}
+			outRow.addElement(String.format("%.2f", running));
+			filtered.add(outRow);
+			periodIn += inAmt;
+			periodOut += outAmt;
+		}
+
+		java.util.Collections.reverse(filtered);
+
+		Vector major = new Vector();
+		major.addElement(filtered);
+		major.addElement(String.format("%.2f", openingBeforePeriod));
+		major.addElement(String.format("%.2f", periodIn));
+		major.addElement(String.format("%.2f", periodOut));
+		if (!filtered.isEmpty()) {
+			Vector lastInPeriod = (Vector) filtered.get(0);
+			major.addElement(lastInPeriod.elementAt(7).toString());
+		} else if (hasFrom || hasTo) {
+			major.addElement(String.format("%.2f", openingBeforePeriod));
+		} else {
+			major.addElement(String.format("%.2f", running));
+		}
+		return major;
+	} finally {
+		if (rs != null) {
+			try { rs.close(); } catch (SQLException e) { ; }
+			rs = null;
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
+
+private String normalizeBankLedgerDate(String value) {
+	if (value == null) return "";
+	String s = value.trim();
+	if (s.length() == 0) return "";
+	if (s.matches("\\d{4}-\\d{2}-\\d{2}")) return s;
+	java.util.regex.Matcher m = java.util.regex.Pattern
+		.compile("^(\\d{2})-(\\d{2})-(\\d{4})$").matcher(s);
+	if (m.matches()) {
+		return m.group(3) + "-" + m.group(2) + "-" + m.group(1);
+	}
+	return s;
+}
+
+private String extractBankLedgerDate(String dateTime) {
+	if (dateTime == null) return "";
+	String s = dateTime.trim();
+	if (s.length() >= 10) {
+		return s.substring(0, 10);
+	}
+	return s;
+}
+
+public double adjustBankBalance(int userId, int bankId, String action, double amount, String notes) throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	ResultSet rs = null;
+	try {
+		if (userId <= 0) {
+			throw new Exception("Invalid user");
+		}
+		if (bankId <= 0) {
+			throw new Exception("Select bank");
+		}
+		if (amount <= 0) {
+			throw new Exception("Enter valid amount");
+		}
+
+		String act = action == null ? "" : action.trim().toLowerCase();
+		if (!"add".equals(act) && !"remove".equals(act)) {
+			throw new Exception("Invalid action");
+		}
+
+		if (notes == null || notes.trim().length() == 0) {
+			notes = "add".equals(act) ? "Manual deposit" : "Manual withdrawal";
+		} else {
+			notes = notes.trim();
+		}
+
+		con = util.DBConnectionManager.getConnectionFromPool();
+		con.setAutoCommit(false);
+
+		pt = con.prepareStatement(
+			"SELECT COALESCE(balance, 0) AS balance, name FROM configure_bank_details " +
+			"WHERE id = ? AND is_blocked = 0 FOR UPDATE");
+		pt.setInt(1, bankId);
+		rs = pt.executeQuery();
+		if (!rs.next()) {
+			throw new Exception("Bank not found");
+		}
+
+		double currentBalance = rs.getDouble("balance");
+		String bankName = rs.getString("name");
+		if (rs != null) {
+			try { rs.close(); } catch (SQLException e) { ; }
+			rs = null;
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+
+		double delta = "add".equals(act) ? amount : -amount;
+		if ("remove".equals(act) && (currentBalance - amount) < -0.0001) {
+			throw new Exception("Insufficient balance in "
+				+ (bankName == null ? "selected bank" : bankName)
+				+ ". Available: " + String.format("%.2f", currentBalance));
+		}
+
+		double inAmount = "add".equals(act) ? amount : 0.0;
+		double outAmount = "remove".equals(act) ? amount : 0.0;
+
+		pt = con.prepareStatement(
+			"INSERT INTO bank_ledger (bill_id, bank_id, in_amount, out_amount, notes, user_id, date_time) " +
+			"VALUES (0, ?, ?, ?, ?, ?, NOW())");
+		pt.setInt(1, bankId);
+		pt.setDouble(2, inAmount);
+		pt.setDouble(3, outAmount);
+		pt.setString(4, notes);
+		pt.setInt(5, userId);
+		if (pt.executeUpdate() <= 0) {
+			throw new Exception("Failed to insert bank ledger entry");
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+
+		pt = con.prepareStatement(
+			"UPDATE configure_bank_details SET balance = COALESCE(balance, 0) + ? WHERE id = ?");
+		pt.setDouble(1, delta);
+		pt.setInt(2, bankId);
+		if (pt.executeUpdate() <= 0) {
+			throw new Exception("Failed to update bank balance");
+		}
+
+		con.commit();
+		return currentBalance + delta;
+	} catch (Exception e) {
+		if (con != null) {
+			try { con.rollback(); } catch (Exception ex) { }
+		}
+		throw e;
+	} finally {
+		if (rs != null) {
+			try { rs.close(); } catch (SQLException e) { ; }
+			rs = null;
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
+
 	public Vector getProductName() throws Exception
 	{
 	Connection con 			= null;
