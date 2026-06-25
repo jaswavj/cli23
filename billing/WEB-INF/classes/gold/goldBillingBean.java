@@ -602,8 +602,8 @@ public class goldBillingBean {
             // 3) Insert stock movement rows
             psStock = con.prepareStatement(
                 "INSERT INTO gold_trasaction_stock " +
-                "(bill_id, in_qty, out_qty, customer_id, rate, total, txn_date_time, user_id) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+                "(bill_id, in_qty, out_qty, customer_id, rate, total, txn_date_time, user_id, notes) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
             for (int i = 0; i < items.size(); i++) {
                 Vector item = (Vector) items.elementAt(i);
@@ -630,6 +630,7 @@ public class goldBillingBean {
                 psStock.setDouble(6, lineTotal);
                 psStock.setTimestamp(7, txnTs);
                 psStock.setInt(8, userId);
+                psStock.setString(9, "Gold transaction #" + billId + " (" + (isSale ? "SALE" : "PURCHASE") + ")");
                 psStock.addBatch();
             }
 
@@ -1395,6 +1396,571 @@ public class goldBillingBean {
             return out;
         } finally {
             close(rs, ps, con);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // CANCEL OPEN/CLOSING ENTRY
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * Cancel an open/closing balance list entry.
+     * SALE/PURCHASE: reverse gold_stock, insert cancel row in gold_trasaction_stock with notes,
+     * mark gold_trasaction.is_cancelled = 1 and insert cancel record.
+     * Other types: delete ledger + payment rows and insert cancel record.
+     */
+    public int cancelOpenClosingEntry(int ledgerId, int userId, String cancelReason) throws Exception {
+        Connection con = null;
+        PreparedStatement ps = null;
+        PreparedStatement psCancel = null;
+        PreparedStatement psUpdateBill = null;
+        PreparedStatement psDeleteLedger = null;
+        PreparedStatement psDeletePayment = null;
+        ResultSet rs = null;
+
+        if (ledgerId <= 0) {
+            throw new Exception("Invalid ledger entry");
+        }
+        if (userId <= 0) {
+            throw new Exception("Invalid user");
+        }
+
+        try {
+            con = getConn();
+            con.setAutoCommit(false);
+
+            ps = con.prepareStatement(
+                "SELECT gtl.id, gtl.bill_id, gtl.customer_id, gtl.bill_amount, gtl.in_amount, gtl.out_amount, " +
+                "       gtl.notes, gtl.date_time, gtl.is_sale, gtl.is_purchase, " +
+                "       COALESCE(gtl.is_opening_balance, 0) AS is_opening_balance, " +
+                "       COALESCE(gtl.is_balance_collection, 0) AS is_balance_collection, " +
+                "       COALESCE(gtl.is_pay_or_collect, 0) AS is_pay_or_collect, " +
+                "       COALESCE(gt.is_cancelled, 0) AS bill_cancelled " +
+                "FROM gold_transaction_ledger gtl " +
+                "LEFT JOIN gold_trasaction gt ON gt.id = gtl.bill_id " +
+                "WHERE gtl.id = ? AND gtl.is_cancelled = 0 " +
+                "FOR UPDATE");
+            ps.setInt(1, ledgerId);
+            rs = ps.executeQuery();
+
+            if (!rs.next()) {
+                throw new Exception("Entry not found or already cancelled");
+            }
+
+            int ledgerRowId = rs.getInt("id");
+            int billId = rs.getInt("bill_id");
+            boolean billIdNull = rs.wasNull();
+            int customerIdVal = rs.getInt("customer_id");
+            boolean customerNull = rs.wasNull();
+            double billAmount = rs.getDouble("bill_amount");
+            double inAmount = rs.getDouble("in_amount");
+            double outAmount = rs.getDouble("out_amount");
+            String notes = rs.getString("notes");
+            Timestamp txnDateTime = rs.getTimestamp("date_time");
+            int isSale = rs.getInt("is_sale");
+            int isPurchase = rs.getInt("is_purchase");
+            int isOpeningBalance = rs.getInt("is_opening_balance");
+            int isBalanceCollection = rs.getInt("is_balance_collection");
+            int payOrCollect = rs.getInt("is_pay_or_collect");
+            int billCancelled = rs.getInt("bill_cancelled");
+
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            String cancelType = resolveCancelType(isSale, isPurchase, isOpeningBalance, isBalanceCollection, payOrCollect);
+
+            if (isSale == 1 || isPurchase == 1) {
+                if (billIdNull || billId <= 0) {
+                    throw new Exception("Invalid bill reference for this entry");
+                }
+                if (billCancelled == 1) {
+                    throw new Exception("Transaction already cancelled");
+                }
+
+                reverseGoldTransactionStock(con, billId, isSale, isPurchase, userId, customerNull ? 0 : customerIdVal, cancelReason);
+                reverseCustomerAccountForCancelledTransaction(con, billId);
+
+                psUpdateBill = con.prepareStatement(
+                    "UPDATE gold_trasaction SET is_cancelled = 1, cancel_user = ?, cancel_date_time = NOW() " +
+                    "WHERE id = ? AND is_cancelled = 0");
+                psUpdateBill.setInt(1, userId);
+                psUpdateBill.setInt(2, billId);
+                if (psUpdateBill.executeUpdate() <= 0) {
+                    throw new Exception("Unable to cancel transaction");
+                }
+                close(null, psUpdateBill, null);
+                psUpdateBill = null;
+            } else {
+                if (isBalanceCollection == 1 && !customerNull && customerIdVal > 0) {
+                    double amount = inAmount > 0 ? inAmount : outAmount;
+                    reverseCreditSettlementAccount(con, customerIdVal, amount, payOrCollect);
+                }
+
+                java.sql.Date billDate = txnDateTime == null ? null : new java.sql.Date(txnDateTime.getTime());
+                java.sql.Time billTime = txnDateTime == null ? null : new java.sql.Time(txnDateTime.getTime());
+
+                if (isOpeningBalance == 1) {
+                    psDeletePayment = con.prepareStatement(
+                        "DELETE FROM gold_trasaction_payment " +
+                        "WHERE is_opening_balance = 1 AND bill_date = ? AND bill_time = ?");
+                    psDeletePayment.setDate(1, billDate);
+                    psDeletePayment.setTime(2, billTime);
+                    psDeletePayment.executeUpdate();
+                } else if (isBalanceCollection == 1 && !customerNull && customerIdVal > 0) {
+                    psDeletePayment = con.prepareStatement(
+                        "DELETE FROM gold_trasaction_payment " +
+                        "WHERE is_balance_collection = 1 AND customer_id = ? AND is_pay_or_collect = ? " +
+                        "AND bill_date = ? AND bill_time = ?");
+                    psDeletePayment.setInt(1, customerIdVal);
+                    psDeletePayment.setInt(2, payOrCollect);
+                    psDeletePayment.setDate(3, billDate);
+                    psDeletePayment.setTime(4, billTime);
+                    psDeletePayment.executeUpdate();
+                }
+
+                psDeleteLedger = con.prepareStatement("DELETE FROM gold_transaction_ledger WHERE id = ?");
+                psDeleteLedger.setInt(1, ledgerRowId);
+                if (psDeleteLedger.executeUpdate() <= 0) {
+                    throw new Exception("Unable to delete ledger entry");
+                }
+            }
+
+            int cancelId = insertGoldTransactionCancelRecord(
+                con,
+                ledgerRowId,
+                billIdNull ? 0 : billId,
+                customerNull ? 0 : customerIdVal,
+                cancelType,
+                billAmount,
+                inAmount,
+                outAmount,
+                notes,
+                txnDateTime,
+                isSale,
+                isPurchase,
+                isOpeningBalance,
+                isBalanceCollection,
+                payOrCollect,
+                userId,
+                cancelReason
+            );
+
+            con.commit();
+            return cancelId;
+        } catch (Exception e) {
+            if (con != null) {
+                try { con.rollback(); } catch (Exception ex) { }
+            }
+            throw e;
+        } finally {
+            close(rs, ps, null);
+            close(null, psCancel, null);
+            close(null, psUpdateBill, null);
+            close(null, psDeleteLedger, null);
+            close(null, psDeletePayment, null);
+            close(null, null, con);
+        }
+    }
+
+    private void reverseCustomerAccountForCancelledTransaction(Connection con, int billId) throws Exception {
+        if (billId <= 0) {
+            return;
+        }
+
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            ps = con.prepareStatement(
+                "SELECT customer_id, balance, is_sale, is_purchase FROM gold_trasaction WHERE id = ? FOR UPDATE");
+            ps.setInt(1, billId);
+            rs = ps.executeQuery();
+
+            if (!rs.next()) {
+                throw new Exception("Transaction not found for account reversal");
+            }
+
+            int customerId = rs.getInt("customer_id");
+            if (rs.wasNull() || customerId <= 0) {
+                return;
+            }
+
+            double balance = rs.getDouble("balance");
+            int isSale = rs.getInt("is_sale");
+            int isPurchase = rs.getInt("is_purchase");
+
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            if (balance <= 0 || (isSale != 1 && isPurchase != 1)) {
+                return;
+            }
+
+            boolean hasDueColumn = true;
+            double advance = 0.0;
+            double due = 0.0;
+            boolean rowExists = false;
+
+            try {
+                ps = con.prepareStatement("SELECT advance, due FROM customer_account WHERE customer_id=? FOR UPDATE");
+                ps.setInt(1, customerId);
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    rowExists = true;
+                    advance = rs.getDouble(1);
+                    due = rs.getDouble(2);
+                }
+            } catch (SQLException dueEx) {
+                hasDueColumn = false;
+                close(rs, ps, null);
+                rs = null;
+                ps = con.prepareStatement("SELECT advance, balance FROM customer_account WHERE customer_id=? FOR UPDATE");
+                ps.setInt(1, customerId);
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    rowExists = true;
+                    advance = rs.getDouble(1);
+                    due = rs.getDouble(2);
+                }
+            }
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            if (!rowExists) {
+                return;
+            }
+
+            double remaining = balance;
+            if (isSale == 1) {
+                if (due > 0) {
+                    double fromDue = Math.min(due, remaining);
+                    due -= fromDue;
+                    remaining -= fromDue;
+                }
+                if (remaining > 0) {
+                    advance += remaining;
+                }
+            } else if (isPurchase == 1) {
+                if (advance > 0) {
+                    double fromAdvance = Math.min(advance, remaining);
+                    advance -= fromAdvance;
+                    remaining -= fromAdvance;
+                }
+                if (remaining > 0) {
+                    due += remaining;
+                }
+            }
+
+            if (hasDueColumn) {
+                ps = con.prepareStatement("UPDATE customer_account SET advance=?, due=? WHERE customer_id=?");
+            } else {
+                ps = con.prepareStatement("UPDATE customer_account SET advance=?, balance=? WHERE customer_id=?");
+            }
+            ps.setDouble(1, advance);
+            ps.setDouble(2, due);
+            ps.setInt(3, customerId);
+            if (ps.executeUpdate() <= 0) {
+                throw new Exception("Failed to reverse customer account for cancelled transaction");
+            }
+        } finally {
+            close(rs, ps, null);
+        }
+    }
+
+    private void reverseGoldTransactionStock(
+            Connection con,
+            int billId,
+            int isSale,
+            int isPurchase,
+            int userId,
+            int customerId,
+            String cancelReason) throws Exception {
+        if (billId <= 0 || (isSale != 1 && isPurchase != 1)) {
+            return;
+        }
+
+        PreparedStatement psStockRows = null;
+        PreparedStatement psInsertStock = null;
+        PreparedStatement psGoldStock = null;
+        ResultSet rs = null;
+
+        try {
+            psStockRows = con.prepareStatement(
+                "SELECT COALESCE(SUM(in_qty), 0) AS in_qty, COALESCE(SUM(out_qty), 0) AS out_qty, " +
+                "       COALESCE(SUM(total), 0) AS total_amount " +
+                "FROM gold_trasaction_stock WHERE bill_id = ?");
+            psStockRows.setInt(1, billId);
+            rs = psStockRows.executeQuery();
+
+            double inQty = 0.0;
+            double outQty = 0.0;
+            double totalAmount = 0.0;
+            if (rs.next()) {
+                inQty = rs.getDouble("in_qty");
+                outQty = rs.getDouble("out_qty");
+                totalAmount = rs.getDouble("total_amount");
+            }
+            close(rs, psStockRows, null);
+            rs = null;
+            psStockRows = null;
+
+            double reverseInQty = 0.0;
+            double reverseOutQty = 0.0;
+            double deltaQty = 0.0;
+            if (isPurchase == 1) {
+                reverseOutQty = inQty;
+                deltaQty = -inQty;
+            } else if (isSale == 1) {
+                reverseInQty = outQty;
+                deltaQty = outQty;
+            }
+
+            if (Math.abs(deltaQty) < 0.0001) {
+                return;
+            }
+
+            double reverseRate = 0.0;
+            double reverseTotal = 0.0;
+            if (isPurchase == 1 && reverseOutQty > 0) {
+                reverseRate = totalAmount / reverseOutQty;
+                reverseTotal = totalAmount;
+            } else if (isSale == 1 && reverseInQty > 0) {
+                reverseRate = totalAmount / reverseInQty;
+                reverseTotal = totalAmount;
+            }
+
+            String noteText = "Cancelled " + (isSale == 1 ? "SALE" : "PURCHASE") + " #" + billId;
+            if (cancelReason != null && cancelReason.trim().length() > 0) {
+                noteText += " - " + cancelReason.trim();
+            }
+
+            psGoldStock = con.prepareStatement(
+                "SELECT COALESCE(stock, 0) AS stock FROM gold_stock WHERE prods_id = ? FOR UPDATE");
+            psGoldStock.setInt(1, 1);
+            rs = psGoldStock.executeQuery();
+
+            double currentStock = 0.0;
+            if (rs.next()) {
+                currentStock = rs.getDouble("stock");
+            }
+            close(rs, psGoldStock, null);
+            rs = null;
+            psGoldStock = null;
+
+            if (isPurchase == 1 && (currentStock + deltaQty) < -0.0001) {
+                throw new Exception("Insufficient stock to cancel purchase. Current stock is "
+                    + String.format("%.3f", currentStock));
+            }
+
+            psGoldStock = con.prepareStatement(
+                "UPDATE gold_stock SET stock = COALESCE(stock, 0) + ? WHERE prods_id = ?");
+            psGoldStock.setDouble(1, deltaQty);
+            psGoldStock.setInt(2, 1);
+            int updated = psGoldStock.executeUpdate();
+            close(null, psGoldStock, null);
+            psGoldStock = null;
+
+            if (updated == 0) {
+                if (deltaQty < 0) {
+                    throw new Exception("Unable to update gold stock for cancelled purchase");
+                }
+                psGoldStock = con.prepareStatement(
+                    "INSERT INTO gold_stock (prods_id, stock) VALUES (?, ?)");
+                psGoldStock.setInt(1, 1);
+                psGoldStock.setDouble(2, deltaQty);
+                if (psGoldStock.executeUpdate() <= 0) {
+                    throw new Exception("Failed to insert gold stock row on cancel");
+                }
+                close(null, psGoldStock, null);
+                psGoldStock = null;
+            }
+
+            psInsertStock = con.prepareStatement(
+                "INSERT INTO gold_trasaction_stock " +
+                "(bill_id, in_qty, out_qty, customer_id, rate, total, txn_date_time, user_id, notes) " +
+                "VALUES (?, ?, ?, ?, ?, ?, NOW(), ?, ?)");
+            psInsertStock.setInt(1, billId);
+            psInsertStock.setDouble(2, reverseInQty);
+            psInsertStock.setDouble(3, reverseOutQty);
+            if (customerId > 0) {
+                psInsertStock.setInt(4, customerId);
+            } else {
+                psInsertStock.setNull(4, Types.INTEGER);
+            }
+            psInsertStock.setDouble(5, reverseRate);
+            psInsertStock.setDouble(6, reverseTotal);
+            psInsertStock.setInt(7, userId);
+            psInsertStock.setString(8, noteText);
+            if (psInsertStock.executeUpdate() <= 0) {
+                throw new Exception("Failed to insert cancelled stock movement row");
+            }
+        } finally {
+            close(rs, psStockRows, null);
+            close(null, psInsertStock, null);
+            close(null, psGoldStock, null);
+        }
+    }
+
+    private String resolveCancelType(int isSale, int isPurchase, int isOpeningBalance, int isBalanceCollection, int payOrCollect) {
+        if (isOpeningBalance == 1) {
+            return "OPENING";
+        }
+        if (isSale == 1) {
+            return "SALE";
+        }
+        if (isPurchase == 1) {
+            return "PURCHASE";
+        }
+        if (isBalanceCollection == 1 && payOrCollect == 1) {
+            return "PAY";
+        }
+        if (isBalanceCollection == 1 && payOrCollect == 2) {
+            return "COLLECT";
+        }
+        return "OTHER";
+    }
+
+    private int insertGoldTransactionCancelRecord(
+            Connection con,
+            int ledgerId,
+            int billId,
+            int customerId,
+            String cancelType,
+            double billAmount,
+            double inAmount,
+            double outAmount,
+            String notes,
+            Timestamp txnDateTime,
+            int isSale,
+            int isPurchase,
+            int isOpeningBalance,
+            int isBalanceCollection,
+            int payOrCollect,
+            int userId,
+            String cancelReason) throws Exception {
+
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        try {
+            ps = con.prepareStatement(
+                "INSERT INTO gold_trasaction_cancel " +
+                "(ledger_id, bill_id, customer_id, cancel_type, bill_amount, in_amount, out_amount, notes, " +
+                " txn_date_time, is_sale, is_purchase, is_opening_balance, is_balance_collection, is_pay_or_collect, " +
+                " cancel_user, cancel_date_time, cancel_reason) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)",
+                Statement.RETURN_GENERATED_KEYS);
+
+            ps.setInt(1, ledgerId);
+            if (billId > 0) {
+                ps.setInt(2, billId);
+            } else {
+                ps.setNull(2, Types.INTEGER);
+            }
+            if (customerId > 0) {
+                ps.setInt(3, customerId);
+            } else {
+                ps.setNull(3, Types.INTEGER);
+            }
+            ps.setString(4, cancelType);
+            ps.setDouble(5, billAmount);
+            ps.setDouble(6, inAmount);
+            ps.setDouble(7, outAmount);
+            ps.setString(8, notes);
+            if (txnDateTime != null) {
+                ps.setTimestamp(9, txnDateTime);
+            } else {
+                ps.setNull(9, Types.TIMESTAMP);
+            }
+            ps.setInt(10, isSale);
+            ps.setInt(11, isPurchase);
+            ps.setInt(12, isOpeningBalance);
+            ps.setInt(13, isBalanceCollection);
+            ps.setInt(14, payOrCollect);
+            ps.setInt(15, userId);
+            ps.setString(16, cancelReason == null ? "" : cancelReason.trim());
+
+            if (ps.executeUpdate() <= 0) {
+                throw new Exception("Failed to insert cancel record");
+            }
+
+            rs = ps.getGeneratedKeys();
+            if (rs != null && rs.next()) {
+                return rs.getInt(1);
+            }
+            throw new Exception("Failed to read cancel record id");
+        } finally {
+            close(rs, ps, null);
+        }
+    }
+
+    private void reverseCreditSettlementAccount(Connection con, int customerId, double amount, int payOrCollect) throws Exception {
+        if (customerId <= 0 || amount <= 0) {
+            return;
+        }
+
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        boolean hasDueColumn = true;
+        double due = 0.0;
+        double advance = 0.0;
+
+        try {
+            try {
+                ps = con.prepareStatement("SELECT COALESCE(due,0) AS due_amt, COALESCE(advance,0) AS adv_amt FROM customer_account WHERE customer_id=? FOR UPDATE");
+                ps.setInt(1, customerId);
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    due = rs.getDouble("due_amt");
+                    advance = rs.getDouble("adv_amt");
+                }
+            } catch (SQLException dueColEx) {
+                hasDueColumn = false;
+                close(rs, ps, null);
+                rs = null;
+                ps = con.prepareStatement("SELECT COALESCE(balance,0) AS due_amt, COALESCE(advance,0) AS adv_amt FROM customer_account WHERE customer_id=? FOR UPDATE");
+                ps.setInt(1, customerId);
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    due = rs.getDouble("due_amt");
+                    advance = rs.getDouble("adv_amt");
+                }
+            }
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            if (payOrCollect == 2) {
+                due += amount;
+                if (advance > 0) {
+                    double excessToReverse = Math.min(advance, amount);
+                    advance -= excessToReverse;
+                    due -= excessToReverse;
+                }
+            } else if (payOrCollect == 1) {
+                advance += amount;
+                if (due > 0) {
+                    double dueToReverse = Math.min(due, amount);
+                    due -= dueToReverse;
+                    advance -= dueToReverse;
+                }
+            }
+
+            if (hasDueColumn) {
+                ps = con.prepareStatement("UPDATE customer_account SET due=?, advance=? WHERE customer_id=?");
+            } else {
+                ps = con.prepareStatement("UPDATE customer_account SET balance=?, advance=? WHERE customer_id=?");
+            }
+            ps.setDouble(1, due);
+            ps.setDouble(2, advance);
+            ps.setInt(3, customerId);
+            if (ps.executeUpdate() <= 0) {
+                throw new Exception("Failed to reverse customer account for cancelled entry");
+            }
+        } finally {
+            close(rs, ps, null);
         }
     }
 

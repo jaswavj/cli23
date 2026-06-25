@@ -100,18 +100,19 @@ for (int i = 0; i < vecPer.size(); i++) {
     </a>
     <% } %>
 
-    <!-- Permission 2: Gold and Master items as main menu -->
-    
-
-   
-
-    
-
+    <!-- Permission 2: Master menu (Customer & Bank) -->
     <% if (permissions.contains(2)) { %>
-    <a href="<%=request.getContextPath()%>/product/master/customer/page.jsp" class="sidebar-item">
-      <i class="fas fa-users"></i>
-      <span>Customers</span>
-    </a>
+    <div class="sidebar-dropdown">
+      <a href="#" class="sidebar-item" data-bs-toggle="collapse" data-bs-target="#masterMenu">
+        <i class="fas fa-database"></i>
+        <span>Master</span>
+        <i class="fas fa-chevron-down ms-auto"></i>
+      </a>
+      <div class="collapse sidebar-submenu" id="masterMenu">
+        <a href="<%=request.getContextPath()%>/product/master/customer/page.jsp" class="sidebar-subitem">Customers</a>
+        <a href="<%=request.getContextPath()%>/product/master/bank/page.jsp" class="sidebar-subitem">Bank</a>
+      </div>
+    </div>
     <% } %>
 
     <!-- Expense menu under permission 2 -->

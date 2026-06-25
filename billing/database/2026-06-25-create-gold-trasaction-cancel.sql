@@ -1,0 +1,27 @@
+-- Cancel audit/history for gold transaction open-closing entries
+CREATE TABLE IF NOT EXISTS `gold_trasaction_cancel` (
+  `id` int unsigned NOT NULL AUTO_INCREMENT,
+  `ledger_id` int unsigned DEFAULT NULL COMMENT 'gold_transaction_ledger.id at cancel time',
+  `bill_id` int unsigned DEFAULT NULL COMMENT 'gold_trasaction.id for SALE/PURCHASE',
+  `customer_id` int DEFAULT NULL,
+  `cancel_type` varchar(30) NOT NULL COMMENT 'SALE, PURCHASE, OPENING, PAY, COLLECT',
+  `bill_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `in_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `out_amount` decimal(14,2) NOT NULL DEFAULT '0.00',
+  `notes` varchar(255) DEFAULT NULL,
+  `txn_date_time` datetime DEFAULT NULL COMMENT 'Original transaction date/time',
+  `is_sale` tinyint(1) NOT NULL DEFAULT '0',
+  `is_purchase` tinyint(1) NOT NULL DEFAULT '0',
+  `is_opening_balance` tinyint(1) NOT NULL DEFAULT '0',
+  `is_balance_collection` tinyint(1) NOT NULL DEFAULT '0',
+  `is_pay_or_collect` tinyint(1) NOT NULL DEFAULT '0',
+  `cancel_user` int NOT NULL,
+  `cancel_date_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `cancel_reason` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `idx_gtc_bill` (`bill_id`),
+  KEY `idx_gtc_ledger` (`ledger_id`),
+  KEY `idx_gtc_customer` (`customer_id`),
+  KEY `idx_gtc_cancel_type` (`cancel_type`),
+  KEY `idx_gtc_cancel_dt` (`cancel_date_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

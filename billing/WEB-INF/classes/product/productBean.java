@@ -3829,6 +3829,184 @@ public Vector getBankDetails() throws Exception
 			}
 		}	
 	}
+//////////////////////////----------------------------
+// Configure Bank Details (configure_bank_details)
+//////////////////////////----------------------------
+public Vector getConfigureBankDetailsList() throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	ResultSet rs = null;
+	try {
+		con = util.DBConnectionManager.getConnectionFromPool();
+		Vector major = new Vector();
+		pt = con.prepareStatement(
+			"SELECT id, name FROM configure_bank_details WHERE is_blocked = 0 ORDER BY name");
+		rs = pt.executeQuery();
+		while (rs.next()) {
+			Vector vec = new Vector();
+			vec.addElement(rs.getString("name"));
+			vec.addElement(rs.getString("id"));
+			major.addElement(vec);
+		}
+		return major;
+	} finally {
+		if (rs != null) {
+			try { rs.close(); } catch (SQLException e) { ; }
+			rs = null;
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
+
+public int checkBankNameExist(String name) throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	ResultSet rs = null;
+	try {
+		con = util.DBConnectionManager.getConnectionFromPool();
+		int bankId = 0;
+		pt = con.prepareStatement("SELECT id FROM configure_bank_details WHERE name = ?");
+		pt.setString(1, name);
+		rs = pt.executeQuery();
+		if (rs.next()) {
+			bankId = rs.getInt(1);
+		}
+		return bankId;
+	} finally {
+		if (rs != null) {
+			try { rs.close(); } catch (SQLException e) { ; }
+			rs = null;
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
+
+public int checkBankNameExist(String name, int id) throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	ResultSet rs = null;
+	try {
+		con = util.DBConnectionManager.getConnectionFromPool();
+		int bankId = 0;
+		pt = con.prepareStatement("SELECT id FROM configure_bank_details WHERE name = ? AND id != ?");
+		pt.setString(1, name);
+		pt.setInt(2, id);
+		rs = pt.executeQuery();
+		if (rs.next()) {
+			bankId = rs.getInt(1);
+		}
+		return bankId;
+	} finally {
+		if (rs != null) {
+			try { rs.close(); } catch (SQLException e) { ; }
+			rs = null;
+		}
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
+
+public void addBankDetail(String name) throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	try {
+		con = util.DBConnectionManager.getConnectionFromPool();
+		con.setAutoCommit(false);
+		pt = con.prepareStatement("INSERT INTO configure_bank_details(name, is_blocked) VALUES (?, 0)");
+		pt.setString(1, name);
+		pt.executeUpdate();
+		con.commit();
+	} catch (Exception e) {
+		if (con != null) {
+			con.rollback();
+		}
+		throw e;
+	} finally {
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
+
+public void editBankDetail(int id, String name) throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	try {
+		con = util.DBConnectionManager.getConnectionFromPool();
+		con.setAutoCommit(false);
+		pt = con.prepareStatement("UPDATE configure_bank_details SET name = ? WHERE id = ?");
+		pt.setString(1, name);
+		pt.setInt(2, id);
+		pt.executeUpdate();
+		con.commit();
+	} catch (Exception e) {
+		if (con != null) {
+			con.rollback();
+		}
+		throw e;
+	} finally {
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
+
+public void blockBankDetail(int id) throws Exception {
+	Connection con = null;
+	PreparedStatement pt = null;
+	try {
+		con = util.DBConnectionManager.getConnectionFromPool();
+		con.setAutoCommit(false);
+		pt = con.prepareStatement("UPDATE configure_bank_details SET is_blocked = 1 WHERE id = ?");
+		pt.setInt(1, id);
+		pt.executeUpdate();
+		con.commit();
+	} catch (Exception e) {
+		if (con != null) {
+			con.rollback();
+		}
+		throw e;
+	} finally {
+		if (pt != null) {
+			try { pt.close(); } catch (SQLException e) { ; }
+			pt = null;
+		}
+		if (con != null) {
+			try { con.close(); } catch (Exception e) { }
+			con = null;
+		}
+	}
+}
 	public Vector getProductName() throws Exception
 	{
 	Connection con 			= null;

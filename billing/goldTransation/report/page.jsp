@@ -513,6 +513,39 @@
         return num(v).toFixed(3);
     }
 
+    function toDisplayDate(value) {
+        if (value == null || value === "") {
+            return "";
+        }
+        var s = String(value).trim();
+        var m = s.match(/^(\d{4})-(\d{2})-(\d{2})([\s\S]*)$/);
+        if (!m) {
+            return s;
+        }
+        return m[3] + "-" + m[2] + "-" + m[1] + (m[4] || "");
+    }
+
+    function toDisplayPeriod(label) {
+        if (!label) {
+            return "selected period";
+        }
+        if (label === "All time") {
+            return label;
+        }
+        return label.split(" to ").map(function(part) {
+            return toDisplayDate(part.trim());
+        }).join(" to ");
+    }
+
+    function formatEmbeddedDates(text) {
+        if (!text) {
+            return text;
+        }
+        return String(text).replace(/\b(\d{4})-(\d{2})-(\d{2})\b/g, function(_, y, m, d) {
+            return d + "-" + m + "-" + y;
+        });
+    }
+
     function loadSummaryCards() {
         fetch(getCtx() + "/goldTransation/report/getData.jsp?mode=summary_cards")
             .then(function(r) { return r.json(); })
@@ -643,7 +676,7 @@
             return ["#", "Customer Name", "Credit Amount"];
         }
         if (type === "stockTxn") {
-            return ["#", "Bill ID", "Customer", "Bill Date", "Bill Time", "In TM", "Out TM", "Rate", "Amount", "Net TM"];
+            return ["#", "Bill ID", "Customer", "Type", "Date", "Time", "In TM", "Out TM", "Rate", "Amount", "Net TM", "Notes"];
         }
         if (type === "openClosing") {
             return ["#", "Date Time", "Customer", "Type", "Opening Balance", "In Amount", "Out Amount", "Closing Balance", "Notes"];
@@ -804,7 +837,7 @@
 
         renderTransactionPaidSplit(rows, t);
 
-        el.reportMeta.textContent = (data.count || rows.length) + " active customers loaded for " + (data.periodLabel || "selected period") + ".";
+        el.reportMeta.textContent = (data.count || rows.length) + " active customers loaded for " + toDisplayPeriod(data.periodLabel) + ".";
     }
 
     function renderCredit(data) {
@@ -913,7 +946,7 @@
                         var billId = r.billId || 0;
                         var txnDateTime = r.txnDateTime || "";
                         html += "<tr data-bill-id='" + billId + "' data-txn-dt='" + encodeURIComponent(txnDateTime) + "' style='cursor:pointer;'>" +
-                            "<td style='padding:8px;border-bottom:1px solid #edf2f1;'>" + (r.billDate || "") + " " + (r.billTime || "") + "</td>" +
+                            "<td style='padding:8px;border-bottom:1px solid #edf2f1;'>" + toDisplayDate(r.billDate) + (r.billTime ? " " + r.billTime : "") + "</td>" +
                             "<td style='padding:8px;border-bottom:1px solid #edf2f1;'>" + (r.txnType || "") + "</td>" +
                             "<td style='padding:8px;border-bottom:1px solid #edf2f1;text-align:right;'>" + money(r.total) + "</td>" +
                             "<td style='padding:8px;border-bottom:1px solid #edf2f1;text-align:right;'>" + money(r.paid) + "</td>" +
@@ -1241,28 +1274,31 @@
                 "<td>" + (idx + 1) + "</td>" +
                 "<td>" + (r.billId || "") + "</td>" +
                 "<td>" + (r.customerName || "") + "</td>" +
-                "<td>" + (r.billDate || "") + "</td>" +
+                "<td>" + (r.txnType || "") + "</td>" +
+                "<td>" + toDisplayDate(r.billDate) + "</td>" +
                 "<td>" + (r.billTime || "") + "</td>" +
                 "<td class='gr-right'>" + tm(r.inTM) + "</td>" +
                 "<td class='gr-right'>" + tm(r.outTM) + "</td>" +
                 "<td class='gr-right'>" + money(r.rate) + "</td>" +
                 "<td class='gr-right'>" + money(r.amount) + "</td>" +
                 "<td class='gr-right'>" + tm(r.netTM) + "</td>" +
+                "<td>" + (r.notes || "") + "</td>" +
                 "</tr>";
         });
         el.reportBody.innerHTML = html;
 
         var t = data.totals || {};
         el.reportFoot.innerHTML = "<tr>" +
-            "<td colspan='5'>Total</td>" +
+            "<td colspan='6'>Total</td>" +
             "<td class='gr-right'>" + tm(t.inTM) + "</td>" +
             "<td class='gr-right'>" + tm(t.outTM) + "</td>" +
             "<td class='gr-right'>-</td>" +
             "<td class='gr-right'>" + money(t.amount) + "</td>" +
             "<td class='gr-right'>" + tm(t.netTM) + "</td>" +
+            "<td></td>" +
             "</tr>";
 
-        el.reportMeta.textContent = (data.count || rows.length) + " stock transactions loaded for " + (data.periodLabel || "selected period") + ".";
+        el.reportMeta.textContent = (data.count || rows.length) + " stock transactions loaded for " + toDisplayPeriod(data.periodLabel) + ".";
     }
 
     function renderOpenClosing(data) {
@@ -1276,9 +1312,20 @@
 
         var html = "";
         rows.forEach(function(r, idx) {
-            html += "<tr>" +
+            html += "<tr class='gr-open-closing-row' style='cursor:pointer;' " +
+                "data-ledger-id='" + (r.id || 0) + "' " +
+                "data-bill-id='" + (r.billId || 0) + "' " +
+                "data-customer-name='" + encodeURIComponent(r.customerName || "Opening Balance") + "' " +
+                "data-txn-type='" + encodeURIComponent(r.txnType || "") + "' " +
+                "data-date-time='" + encodeURIComponent(r.dateTime || "") + "' " +
+                "data-in-amount='" + money(r.inAmount) + "' " +
+                "data-out-amount='" + money(r.outAmount) + "' " +
+                "data-notes='" + encodeURIComponent(r.notes || "") + "' " +
+                "data-is-sale='" + (r.isSale || 0) + "' " +
+                "data-is-purchase='" + (r.isPurchase || 0) + "' " +
+                "data-is-opening='" + (r.isOpeningBalance || 0) + "'>" +
                 "<td>" + (idx + 1) + "</td>" +
-                "<td>" + (r.dateTime || "") + "</td>" +
+                "<td>" + toDisplayDate(r.dateTime) + "</td>" +
                 "<td>" + (r.customerName || "Opening Balance") + "</td>" +
                 "<td>" + (r.txnType || "") + "</td>" +
                 "<td class='gr-right'>" + money(r.openingBalance) + "</td>" +
@@ -1300,7 +1347,93 @@
             "<td class='gr-right'>-</td>" +
             "</tr>";
 
-        el.reportMeta.textContent = (data.count || rows.length) + " open/closing rows loaded for " + (data.periodLabel || "selected period") + ".";
+        el.reportMeta.textContent = (data.count || rows.length) + " open/closing rows loaded for " + toDisplayPeriod(data.periodLabel) + ". Click a row to cancel entry.";
+    }
+
+    function openCancelEntryModal(rowNode) {
+        if (!rowNode) {
+            return;
+        }
+
+        var ledgerId = parseInt(rowNode.getAttribute("data-ledger-id") || "0", 10);
+        var billId = parseInt(rowNode.getAttribute("data-bill-id") || "0", 10);
+        var customerName = decodeURIComponent(rowNode.getAttribute("data-customer-name") || "");
+        var txnType = decodeURIComponent(rowNode.getAttribute("data-txn-type") || "");
+        var dateTime = decodeURIComponent(rowNode.getAttribute("data-date-time") || "");
+        var inAmount = rowNode.getAttribute("data-in-amount") || "0.00";
+        var outAmount = rowNode.getAttribute("data-out-amount") || "0.00";
+        var notes = decodeURIComponent(rowNode.getAttribute("data-notes") || "");
+        var isSale = parseInt(rowNode.getAttribute("data-is-sale") || "0", 10);
+        var isPurchase = parseInt(rowNode.getAttribute("data-is-purchase") || "0", 10);
+        var isOpening = parseInt(rowNode.getAttribute("data-is-opening") || "0", 10);
+
+        if (ledgerId <= 0) {
+            return;
+        }
+
+        var cancelHint = "";
+        if (isSale === 1 || isPurchase === 1) {
+            cancelHint = "This will mark Gold Transaction #" + billId + " as cancelled, reverse stock (purchase reduces / sale adds back), and save cancel details.";
+        } else if (isOpening === 1) {
+            cancelHint = "This will delete the opening balance ledger and payment rows, and save cancel details.";
+        } else {
+            cancelHint = "This will delete the ledger and payment rows, reverse customer account (if applicable), and save cancel details.";
+        }
+
+        var html = "" +
+            "<div style='text-align:left;font-size:13px;color:#304848;'>" +
+            "<div style='margin-bottom:8px;'><strong>Date:</strong> " + toDisplayDate(dateTime) + "</div>" +
+            "<div style='margin-bottom:8px;'><strong>Customer:</strong> " + customerName + "</div>" +
+            "<div style='margin-bottom:8px;'><strong>Type:</strong> " + txnType + "</div>" +
+            "<div style='margin-bottom:8px;'><strong>In:</strong> " + inAmount + " &nbsp; <strong>Out:</strong> " + outAmount + "</div>" +
+            (notes ? "<div style='margin-bottom:8px;'><strong>Notes:</strong> " + notes + "</div>" : "") +
+            "<div style='margin:10px 0;padding:10px;border-radius:8px;background:#fff5f5;border:1px solid #f0caca;color:#7a3030;'>" + cancelHint + "</div>" +
+            "<label style='display:block;font-weight:700;margin-bottom:4px;'>Cancel Reason (optional)</label>" +
+            "<input id='cancelReasonInput' type='text' maxlength='255' placeholder='Enter reason' style='width:100%;height:38px;border:1px solid #c8d8d6;border-radius:8px;padding:0 10px;' />" +
+            "</div>";
+
+        Swal.fire({
+            title: "Cancel Entry",
+            html: html,
+            width: 560,
+            showCancelButton: true,
+            confirmButtonText: "Cancel Entry",
+            confirmButtonColor: "#b03838",
+            cancelButtonText: "Close",
+            focusConfirm: false,
+            preConfirm: function() {
+                var reasonNode = document.getElementById("cancelReasonInput");
+                return reasonNode ? reasonNode.value.trim() : "";
+            }
+        }).then(function(result) {
+            if (!result.isConfirmed) {
+                return;
+            }
+
+            fetch(getCtx() + "/goldTransation/report/getData.jsp?mode=cancel_open_closing", {
+                method: "POST",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: "ledgerId=" + encodeURIComponent(ledgerId) +
+                    "&cancelReason=" + encodeURIComponent(result.value || "")
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.success) {
+                    throw new Error(data && data.message ? data.message : "Unable to cancel entry");
+                }
+                Swal.fire({
+                    icon: "success",
+                    title: "Cancelled",
+                    text: data.message || "Entry cancelled successfully.",
+                    confirmButtonColor: "#1f4f89"
+                });
+                loadSummaryCards();
+                loadReport();
+            })
+            .catch(function(err) {
+                Swal.fire("Error", err.message || "Unable to cancel entry", "error");
+            });
+        });
     }
 
     function renderProfitLoss(data) {
@@ -1316,7 +1449,7 @@
         rows.forEach(function(r, idx) {
             html += "<tr>" +
                 "<td>" + (idx + 1) + "</td>" +
-                "<td>" + (r.label || "Overall") + "</td>" +
+                "<td>" + formatEmbeddedDates(r.label || "Overall") + "</td>" +
                 "<td class='gr-right'>" + tm(r.purchaseTM) + "</td>" +
                 "<td class='gr-right'>" + tm(r.saleTM) + "</td>" +
                 "<td class='gr-right'>" + money(r.purchaseRate) + "</td>" +
@@ -1340,7 +1473,7 @@
             "<td class='gr-right'>" + money(t.profitLoss) + "</td>" +
             "</tr>";
 
-        el.reportMeta.textContent = (data.count || rows.length) + " profit/loss rows for " + (data.periodLabel || "selected period") + ".";
+        el.reportMeta.textContent = (data.count || rows.length) + " profit/loss rows for " + toDisplayPeriod(data.periodLabel) + ".";
     }
 
     function renderByType(data) {
@@ -1448,6 +1581,13 @@
         }
     });
     el.reportBody.addEventListener("click", function(e) {
+        if (activeType === "openClosing") {
+            var openRow = e.target.closest(".gr-open-closing-row");
+            if (openRow) {
+                openCancelEntryModal(openRow);
+            }
+            return;
+        }
         if (activeType !== "creditList") {
             return;
         }
