@@ -51,6 +51,15 @@
             payments.addElement(row);
         }
 
+        Vector orderIds = new Vector();
+        String orderIdsRaw = request.getParameter("orderIds");
+        if (orderIdsRaw != null && orderIdsRaw.trim().length() > 0) {
+            JSONArray jOrderIds = new JSONArray(orderIdsRaw);
+            for (int i = 0; i < jOrderIds.length(); i++) {
+                orderIds.addElement(String.valueOf(jOrderIds.getInt(i)));
+            }
+        }
+
         int billId = goldBean.saveGoldTransaction(
             customerId,
             uid.intValue(),
@@ -62,7 +71,8 @@
             isSale,
             isPurchase,
             items,
-            payments
+            payments,
+            orderIds
         );
 
         double currentStock = goldBean.getGoldStockByProductId(1);

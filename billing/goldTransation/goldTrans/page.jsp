@@ -329,6 +329,41 @@
             border: 1px solid #d8e2e0;
         }
 
+        .gt-btn-order {
+            background: linear-gradient(135deg, #1f5a58, #2d7a77);
+            color: #fff;
+        }
+
+        .gt-top-bar {
+            display: flex;
+            justify-content: flex-end;
+            margin-bottom: 12px;
+        }
+
+        .gt-order-icon-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: none;
+            border-radius: 10px;
+            height: 42px;
+            padding: 0 16px;
+            font-size: 0.88rem;
+            font-weight: 700;
+            color: #fff;
+            background: linear-gradient(135deg, #1f5a58, #2d7a77);
+            box-shadow: 0 4px 12px rgba(31, 90, 88, 0.22);
+        }
+
+        .gt-order-icon-btn i {
+            font-size: 1rem;
+        }
+
+        .gt-order-icon-btn:hover {
+            color: #fff;
+            filter: brightness(1.05);
+        }
+
         .gt-autocomplete {
             position: absolute;
             left: 0;
@@ -344,6 +379,85 @@
             max-height: 220px;
             overflow-y: auto;
             box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+        }
+
+        .gt-modal-stock-note {
+            font-size: 0.82rem;
+            color: var(--gt-muted);
+            margin-top: 6px;
+        }
+
+        .gt-modal-stock-note.is-danger {
+            color: var(--gt-danger);
+            font-weight: 700;
+        }
+
+        .gt-orders-panel {
+            background: #f8fbfa;
+            border: 1px solid #dce8e6;
+            border-radius: 10px;
+            padding: 12px 14px;
+        }
+
+        .gt-order-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid #edf2f1;
+            flex-wrap: wrap;
+        }
+
+        .gt-order-item:last-child {
+            border-bottom: none;
+        }
+
+        .gt-order-check {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.88rem;
+            color: #2d3d3d;
+            font-weight: 600;
+            margin: 0;
+            cursor: pointer;
+        }
+
+        .gt-order-check input {
+            width: 18px;
+            height: 18px;
+            accent-color: var(--gt-primary);
+        }
+
+        .gt-order-badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 999px;
+            padding: 3px 10px;
+            font-size: 0.74rem;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+        }
+
+        .gt-order-badge.is-purchase {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #bfdbfe;
+        }
+
+        .gt-order-badge.is-sale {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+
+        .gt-order-meta {
+            font-size: 0.84rem;
+            color: #4d6363;
+        }
+
+        .gt-order-row .gt-item-qty {
+            background: #f8fbfa;
         }
 
         .gt-autocomplete li {
@@ -412,7 +526,13 @@
 <jsp:include page="/assets/common/pageHeader.jsp" />
 
 <div class="container-fluid mt-3 mst-page gt-page">
-    
+
+    <div class="gt-top-bar">
+        <button type="button" class="gt-order-icon-btn" id="btnOpenTmOrder" title="TM Order">
+            <i class="fa-solid fa-clipboard-list"></i>
+            <span>TM Order</span>
+        </button>
+    </div>
 
     <div class="gt-card">
         <div class="gt-title">
@@ -467,6 +587,13 @@
 
             <div class="col-12">
                 <div id="customerCreditIndicator" class="gt-credit-indicator"></div>
+            </div>
+
+            <div class="col-12" id="customerOrdersPanel" style="display:none;">
+                <div class="gt-orders-panel">
+                    <div class="gt-form-label mb-2">Pending TM Orders — tick to convert into bill</div>
+                    <div id="customerOrdersList"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -550,12 +677,59 @@
     </div>
 </div>
 
+<div class="modal fade" id="tmOrderModal" tabindex="-1" aria-labelledby="tmOrderModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="tmOrderModalLabel"><i class="fa-solid fa-clipboard-list me-2"></i>TM Order</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row g-3">
+                    <div class="col-12">
+                        <label class="gt-form-label">Order Type</label>
+                        <select id="tmOrderType" class="gt-select">
+                            <option value="">Select</option>
+                            <option value="purchase">Purchase Order</option>
+                            <option value="sale">Sale Order</option>
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="gt-form-label">Order Date</label>
+                        <input id="tmOrderDate" type="date" class="gt-input">
+                    </div>
+                    <div class="col-12">
+                        <label class="gt-form-label">Customer Name</label>
+                        <div class="gt-customer-wrap">
+                            <input id="tmCustomerName" type="text" class="gt-input" autocomplete="off" placeholder="Type customer name">
+                            <input id="tmCustomerId" type="hidden" value="0">
+                        </div>
+                    </div>
+                    <div class="col-12">
+                        <label class="gt-form-label">TM Qty (Gram)</label>
+                        <input id="tmOrderQty" type="number" class="gt-input" min="0.001" step="0.001" placeholder="0.000">
+                        <div id="tmOrderStockNote" class="gt-modal-stock-note"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="gt-btn gt-btn-reset" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="gt-btn gt-btn-save" id="btnSaveTmOrder">Save Order</button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
 (function() {
     "use strict";
 
     var rowCount = 0;
     var autoTimer;
+    var tmAutoTimer;
+    var tmOrderModal;
+    var customerOrders = [];
+    var selectedOrderMap = {};
 
     var el = {
         txnType: document.getElementById("txnType"),
@@ -579,10 +753,24 @@
         paidTotal: document.getElementById("paidTotal"),
         remainingAmount: document.getElementById("remainingAmount"),
         customerCreditIndicator: document.getElementById("customerCreditIndicator"),
+        customerOrdersPanel: document.getElementById("customerOrdersPanel"),
+        customerOrdersList: document.getElementById("customerOrdersList"),
         currentGoldStock: document.getElementById("currentGoldStock"),
         btnOpenReport: document.getElementById("btnOpenReport"),
         btnSave: document.getElementById("btnSave"),
         btnResetAll: document.getElementById("btnResetAll")
+    };
+
+    var tmEl = {
+        modal: document.getElementById("tmOrderModal"),
+        orderType: document.getElementById("tmOrderType"),
+        orderDate: document.getElementById("tmOrderDate"),
+        customerName: document.getElementById("tmCustomerName"),
+        customerId: document.getElementById("tmCustomerId"),
+        orderQty: document.getElementById("tmOrderQty"),
+        stockNote: document.getElementById("tmOrderStockNote"),
+        btnOpen: document.getElementById("btnOpenTmOrder"),
+        btnSave: document.getElementById("btnSaveTmOrder")
     };
 
     function setDateTimeDefaults() {
@@ -615,6 +803,197 @@
         return parseNumber(v).toFixed(3);
     }
 
+    function getSelectedOrderQty(orderType) {
+        var sum = 0;
+        customerOrders.forEach(function(order) {
+            if (selectedOrderMap[order.orderId] && String(order.type) === String(orderType)) {
+                sum += parseNumber(order.qty);
+            }
+        });
+        return sum;
+    }
+
+    function getSelectedOrderIds() {
+        return Object.keys(selectedOrderMap).filter(function(id) {
+            return selectedOrderMap[id];
+        });
+    }
+
+    function clearCustomerOrdersUI() {
+        customerOrders = [];
+        selectedOrderMap = {};
+        el.customerOrdersList.innerHTML = "";
+        el.customerOrdersPanel.style.display = "none";
+    }
+
+    function formatDisplayDate(raw) {
+        if (!raw) return "";
+        var m = String(raw).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) return raw;
+        return m[3] + "-" + m[2] + "-" + m[1];
+    }
+
+    function orderTypeLabel(type) {
+        return String(type) === "1"
+            ? "<span class='gt-order-badge is-purchase'>Purchase</span>"
+            : "<span class='gt-order-badge is-sale'>Sale</span>";
+    }
+
+    function renderCustomerOrders() {
+        if (!customerOrders.length) {
+            clearCustomerOrdersUI();
+            return;
+        }
+
+        var html = "";
+        customerOrders.forEach(function(order) {
+            var checked = selectedOrderMap[order.orderId] ? " checked" : "";
+            html += "<div class='gt-order-item'>";
+            html += "<label class='gt-order-check'>";
+            html += "<input type='checkbox' class='gt-order-convert-check' data-order-id='" + order.orderId + "'" + checked + ">";
+            html += "Convert to bill";
+            html += "</label>";
+            html += orderTypeLabel(order.type);
+            html += "<span class='gt-order-meta'>Order #" + order.orderId + " · " + weight(order.qty) + " g · " + formatDisplayDate(order.orderDate) + "</span>";
+            html += "</div>";
+        });
+
+        el.customerOrdersList.innerHTML = html;
+        el.customerOrdersPanel.style.display = "block";
+    }
+
+    function loadCustomerOrders(customerId) {
+        clearCustomerOrdersUI();
+        if (!customerId || parseInt(customerId, 10) <= 0) {
+            return;
+        }
+
+        fetch(getCtx() + "/goldTransation/goldTrans/getCustomerOrders.jsp?customerId=" + encodeURIComponent(customerId), {
+            credentials: "same-origin"
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (!data || !data.success) {
+                return;
+            }
+            customerOrders = data.rows || [];
+            renderCustomerOrders();
+        })
+        .catch(function() {
+            clearCustomerOrdersUI();
+        });
+    }
+
+    function findOrderById(orderId) {
+        for (var i = 0; i < customerOrders.length; i++) {
+            if (String(customerOrders[i].orderId) === String(orderId)) {
+                return customerOrders[i];
+            }
+        }
+        return null;
+    }
+
+    function findOrderRow(orderId) {
+        return el.itemsBody.querySelector('tr[data-order-id="' + orderId + '"]');
+    }
+
+    function removeOrderRowById(orderId) {
+        var row = findOrderRow(orderId);
+        if (row) {
+            if (el.itemsBody.querySelectorAll("tr").length <= 1) {
+                row.querySelector(".gt-item-particular").value = "";
+                row.querySelector(".gt-item-qty").value = "";
+                row.querySelector(".gt-item-rate").value = "";
+                row.querySelector(".gt-row-total").textContent = "0.00";
+                row.removeAttribute("data-order-id");
+                row.classList.remove("gt-order-row");
+                var qtyInput = row.querySelector(".gt-item-qty");
+                if (qtyInput) {
+                    qtyInput.readOnly = false;
+                    qtyInput.classList.remove("gt-input-readonly");
+                }
+            } else {
+                row.remove();
+                renumberRows();
+            }
+            refreshTotals();
+        }
+    }
+
+    function addOrderRowFromOrder(order) {
+        if (findOrderRow(order.orderId)) {
+            return;
+        }
+
+        var row = createRow({
+            orderId: order.orderId,
+            qty: order.qty,
+            label: "TM Order #" + order.orderId
+        });
+
+        var emptyRow = el.itemsBody.querySelector("tr:not([data-order-id])");
+        if (emptyRow) {
+            var particular = emptyRow.querySelector(".gt-item-particular");
+            var qty = emptyRow.querySelector(".gt-item-qty");
+            var rate = emptyRow.querySelector(".gt-item-rate");
+            var hasData = (particular && particular.value.trim()) || parseNumber(qty.value) > 0 || parseNumber(rate.value) > 0;
+            if (!hasData && el.itemsBody.querySelectorAll("tr").length === 1) {
+                emptyRow.replaceWith(row);
+            } else {
+                el.itemsBody.appendChild(row);
+            }
+        } else {
+            el.itemsBody.appendChild(row);
+        }
+
+        renumberRows();
+        refreshTotals();
+    }
+
+    function toggleOrderToBill(orderId, checked) {
+        var order = findOrderById(orderId);
+        if (!order) {
+            return;
+        }
+
+        if (checked) {
+            var orderTypeValue = String(order.type) === "1" ? "purchase" : "sale";
+            var existingType = null;
+            getSelectedOrderIds().forEach(function(id) {
+                var selected = findOrderById(id);
+                if (selected) {
+                    existingType = String(selected.type) === "1" ? "purchase" : "sale";
+                }
+            });
+
+            if (existingType && existingType !== orderTypeValue) {
+                Swal.fire({
+                    icon: "warning",
+                    title: "Mixed Order Types",
+                    text: "Convert purchase and sale orders in separate bills.",
+                    confirmButtonColor: "#1f5a58"
+                });
+                var cb = el.customerOrdersList.querySelector('.gt-order-convert-check[data-order-id="' + orderId + '"]');
+                if (cb) {
+                    cb.checked = false;
+                }
+                return;
+            }
+
+            selectedOrderMap[order.orderId] = true;
+            el.txnType.value = orderTypeValue;
+            addOrderRowFromOrder(order);
+        } else {
+            delete selectedOrderMap[order.orderId];
+            removeOrderRowById(order.orderId);
+            if (!getSelectedOrderIds().length) {
+                el.txnType.value = "";
+            }
+        }
+
+        updateSaveStockState();
+    }
+
     function getSaleQty() {
         return parseNumber(el.totalQty.textContent);
     }
@@ -627,7 +1006,11 @@
         if (el.txnType.value !== "sale") {
             return false;
         }
-        return getSaleQty() > getCurrentStockQty();
+        var manualQty = getSaleQty() - getSelectedOrderQty(2);
+        if (manualQty <= 0) {
+            return false;
+        }
+        return manualQty > getCurrentStockQty();
     }
 
     function updateSaveStockState() {
@@ -649,7 +1032,7 @@
         });
     }
 
-    function createRow() {
+    function createRow(orderMeta) {
         rowCount += 1;
         var tr = document.createElement("tr");
         tr.innerHTML =
@@ -659,6 +1042,15 @@
             '<td><input type="number" class="gt-input gt-item-rate" min="0" step="0.01" placeholder="0.00"></td>' +
             '<td class="gt-row-total">0.00</td>' +
             '<td style="text-align:center;"><button type="button" class="gt-row-delete"><i class="fa-solid fa-trash"></i></button></td>';
+
+        if (orderMeta && orderMeta.orderId) {
+            tr.dataset.orderId = String(orderMeta.orderId);
+            tr.classList.add("gt-order-row");
+            tr.querySelector(".gt-item-particular").value = orderMeta.label || ("TM Order #" + orderMeta.orderId);
+            tr.querySelector(".gt-item-qty").value = weight(orderMeta.qty || 0);
+            tr.querySelector(".gt-item-qty").readOnly = true;
+            tr.querySelector(".gt-item-qty").classList.add("gt-input-readonly");
+        }
 
         var qtyInput = tr.querySelector(".gt-item-qty");
         var rateInput = tr.querySelector(".gt-item-rate");
@@ -674,7 +1066,31 @@
         rateInput.addEventListener("input", calcRow);
 
         delBtn.addEventListener("click", function() {
+            if (tr.dataset.orderId) {
+                var orderId = tr.dataset.orderId;
+                delete selectedOrderMap[orderId];
+                var cb = el.customerOrdersList.querySelector('.gt-order-convert-check[data-order-id="' + orderId + '"]');
+                if (cb) {
+                    cb.checked = false;
+                }
+                if (!getSelectedOrderIds().length) {
+                    el.txnType.value = "";
+                }
+            }
+
             if (el.itemsBody.querySelectorAll("tr").length <= 1) {
+                if (tr.dataset.orderId) {
+                    tr.removeAttribute("data-order-id");
+                    tr.classList.remove("gt-order-row");
+                    tr.querySelector(".gt-item-particular").value = "";
+                    qtyInput.value = "";
+                    qtyInput.readOnly = false;
+                    qtyInput.classList.remove("gt-input-readonly");
+                    rateInput.value = "";
+                    tr.querySelector(".gt-row-total").textContent = "0.00";
+                    refreshTotals();
+                    return;
+                }
                 return;
             }
             tr.remove();
@@ -687,6 +1103,10 @@
                 inp.classList.remove("is-invalid-gt");
             });
         });
+
+        if (orderMeta && orderMeta.orderId) {
+            calcRow();
+        }
 
         return tr;
     }
@@ -862,6 +1282,7 @@
         removeCustomerDropdown("name");
         removeCustomerDropdown("phone");
         loadCustomerCredit(el.customerId.value);
+        loadCustomerOrders(el.customerId.value);
     }
 
     function queryCustomerByName() {
@@ -869,6 +1290,7 @@
         removeCustomerDropdown("name");
         var query = el.customerName.value.trim();
         el.customerId.value = "0";
+        clearCustomerOrdersUI();
         if (query.length < 2) {
             return;
         }
@@ -888,6 +1310,7 @@
         removeCustomerDropdown("phone");
         var query = el.customerPhone.value.trim();
         el.customerId.value = "0";
+        clearCustomerOrdersUI();
         if (query.length < 3) {
             return;
         }
@@ -1030,6 +1453,9 @@
         payload.append("balance", money(el.balanceAmount.value));
         payload.append("items", JSON.stringify(items));
         payload.append("payments", JSON.stringify(payments));
+        payload.append("orderIds", JSON.stringify(getSelectedOrderIds().map(function(id) {
+            return parseInt(id, 10);
+        })));
         return payload;
     }
 
@@ -1039,6 +1465,8 @@
         el.customerName.value = "";
         el.customerPhone.value = "";
         clearCustomerCreditUI();
+        clearCustomerOrdersUI();
+        selectedOrderMap = {};
         el.itemsBody.innerHTML = "";
         rowCount = 0;
         el.itemsBody.appendChild(createRow());
@@ -1058,6 +1486,216 @@
         updateSaveStockState();
     }
 
+    function resetTmOrderForm() {
+        tmEl.orderType.value = "";
+        tmEl.customerId.value = "0";
+        tmEl.customerName.value = "";
+        tmEl.orderQty.value = "";
+        tmEl.stockNote.textContent = "";
+        tmEl.stockNote.classList.remove("is-danger");
+
+        var now = new Date();
+        var yyyy = now.getFullYear();
+        var mm = String(now.getMonth() + 1).padStart(2, "0");
+        var dd = String(now.getDate()).padStart(2, "0");
+        tmEl.orderDate.value = yyyy + "-" + mm + "-" + dd;
+
+        removeTmCustomerDropdown();
+        tmEl.orderType.classList.remove("is-invalid-gt");
+        tmEl.customerName.classList.remove("is-invalid-gt");
+        tmEl.orderQty.classList.remove("is-invalid-gt");
+        updateTmOrderStockNote();
+    }
+
+    function openTmOrderModal() {
+        resetTmOrderForm();
+        if (window.bootstrap && tmEl.modal) {
+            if (!tmOrderModal) {
+                tmOrderModal = new bootstrap.Modal(tmEl.modal);
+            }
+            tmOrderModal.show();
+            setTimeout(function() { tmEl.orderType.focus(); }, 200);
+        }
+    }
+
+    function removeTmCustomerDropdown() {
+        var oldNode = document.getElementById("gtTmCustDropdown");
+        if (oldNode) {
+            oldNode.remove();
+        }
+    }
+
+    function showTmCustomerDropdown(list) {
+        removeTmCustomerDropdown();
+        var wrap = tmEl.customerName.closest(".gt-customer-wrap");
+        var ul = document.createElement("ul");
+        ul.id = "gtTmCustDropdown";
+        ul.className = "gt-autocomplete";
+
+        list.forEach(function(customer) {
+            var li = document.createElement("li");
+            var phoneText = customer.phone && customer.phone !== "-" ? customer.phone : "No phone";
+            li.innerHTML = "<span>" + customer.name + "</span><small style='color:#6f8181;'>" + phoneText + "</small>";
+            li.addEventListener("mousedown", function(e) {
+                e.preventDefault();
+                tmEl.customerId.value = customer.id || "0";
+                tmEl.customerName.value = customer.name || "";
+                removeTmCustomerDropdown();
+            });
+            ul.appendChild(li);
+        });
+
+        wrap.appendChild(ul);
+    }
+
+    function queryTmCustomerByName() {
+        clearTimeout(tmAutoTimer);
+        removeTmCustomerDropdown();
+        var query = tmEl.customerName.value.trim();
+        tmEl.customerId.value = "0";
+        if (query.length < 2) {
+            return;
+        }
+        tmAutoTimer = setTimeout(function() {
+            fetch(getCtx() + "/billing/customerAutocomplete.jsp?query=" + encodeURIComponent(query))
+                .then(function(r) { return r.json(); })
+                .then(function(rows) {
+                    if (rows && rows.length) {
+                        showTmCustomerDropdown(rows);
+                    }
+                });
+        }, 250);
+    }
+
+    function updateTmOrderStockNote() {
+        if (tmEl.orderType.value !== "sale") {
+            tmEl.stockNote.textContent = "";
+            tmEl.stockNote.classList.remove("is-danger");
+            tmEl.btnSave.classList.remove("gt-btn-soft-disabled");
+            delete tmEl.btnSave.dataset.stockBlocked;
+            return;
+        }
+
+        var qty = parseNumber(tmEl.orderQty.value);
+        var stock = getCurrentStockQty();
+        tmEl.stockNote.textContent = "Available stock: " + weight(stock) + " g";
+
+        if (qty > stock) {
+            tmEl.stockNote.textContent += " — qty exceeds available stock";
+            tmEl.stockNote.classList.add("is-danger");
+            tmEl.btnSave.dataset.stockBlocked = "1";
+            tmEl.btnSave.classList.add("gt-btn-soft-disabled");
+        } else {
+            tmEl.stockNote.classList.remove("is-danger");
+            delete tmEl.btnSave.dataset.stockBlocked;
+            tmEl.btnSave.classList.remove("gt-btn-soft-disabled");
+        }
+    }
+
+    function validateTmOrderForm() {
+        var valid = true;
+        tmEl.orderType.classList.remove("is-invalid-gt");
+        tmEl.customerName.classList.remove("is-invalid-gt");
+        tmEl.orderQty.classList.remove("is-invalid-gt");
+
+        if (!tmEl.orderType.value) {
+            tmEl.orderType.classList.add("is-invalid-gt");
+            valid = false;
+        }
+        if (!tmEl.orderDate.value) {
+            valid = false;
+        }
+        if (!tmEl.customerName.value.trim() || parseInt(tmEl.customerId.value || "0", 10) <= 0) {
+            tmEl.customerName.classList.add("is-invalid-gt");
+            valid = false;
+        }
+        if (parseNumber(tmEl.orderQty.value) <= 0) {
+            tmEl.orderQty.classList.add("is-invalid-gt");
+            valid = false;
+        }
+        if (tmEl.orderType.value === "sale" && parseNumber(tmEl.orderQty.value) > getCurrentStockQty()) {
+            tmEl.orderQty.classList.add("is-invalid-gt");
+            valid = false;
+        }
+
+        if (!valid) {
+            Swal.fire({
+                icon: "warning",
+                title: "Please Check Inputs",
+                text: "Fill order type, date, customer and valid TM qty before saving.",
+                confirmButtonColor: "#1f5a58"
+            });
+        }
+        return valid;
+    }
+
+    function saveTmOrder() {
+        if (tmEl.btnSave.dataset.stockBlocked === "1") {
+            Swal.fire({
+                icon: "warning",
+                title: "Insufficient Stock",
+                text: "Sale order qty cannot be greater than current stock.",
+                confirmButtonColor: "#1f5a58"
+            });
+            return;
+        }
+        if (!validateTmOrderForm()) {
+            return;
+        }
+
+        var payload = new URLSearchParams();
+        payload.append("orderType", tmEl.orderType.value);
+        payload.append("orderDate", tmEl.orderDate.value);
+        payload.append("customerId", tmEl.customerId.value || "0");
+        payload.append("qty", tmEl.orderQty.value);
+
+        tmEl.btnSave.disabled = true;
+
+        fetch(getCtx() + "/goldTransation/goldTrans/saveGoldOrder.jsp", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: payload.toString()
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            tmEl.btnSave.disabled = false;
+            if (data.status === "ok") {
+                Swal.fire({
+                    icon: "success",
+                    title: "Saved",
+                    text: "TM Order #" + data.order_id + " saved successfully.",
+                    confirmButtonColor: "#1f5a58"
+                }).then(function() {
+                    if (typeof data.current_stock !== "undefined") {
+                        updateCurrentStockUI(data.current_stock);
+                    } else {
+                        loadCurrentStock();
+                    }
+                    if (tmOrderModal) {
+                        tmOrderModal.hide();
+                    }
+                    resetTmOrderForm();
+                });
+            } else {
+                Swal.fire({
+                    icon: "error",
+                    title: "Save Failed",
+                    text: data.msg || "Unable to save TM order",
+                    confirmButtonColor: "#1f5a58"
+                });
+            }
+        })
+        .catch(function(err) {
+            tmEl.btnSave.disabled = false;
+            Swal.fire({
+                icon: "error",
+                title: "Network Error",
+                text: err.message || "Unable to save TM order",
+                confirmButtonColor: "#1f5a58"
+            });
+        });
+    }
+
     el.btnOpenCustomer.addEventListener("click", function() {
         window.open(getCtx() + "/product/master/customer/page.jsp", "_blank", "width=980,height=680");
     });
@@ -1071,8 +1709,26 @@
         el.customerName.value = "";
         el.customerPhone.value = "";
         clearCustomerCreditUI();
+        clearCustomerOrdersUI();
+        selectedOrderMap = {};
+        el.itemsBody.querySelectorAll("tr[data-order-id]").forEach(function(row) {
+            row.remove();
+        });
+        if (!el.itemsBody.querySelectorAll("tr").length) {
+            el.itemsBody.appendChild(createRow());
+        }
+        renumberRows();
+        refreshTotals();
         removeCustomerDropdown("name");
         removeCustomerDropdown("phone");
+    });
+
+    el.customerOrdersList.addEventListener("change", function(e) {
+        var cb = e.target.closest(".gt-order-convert-check");
+        if (!cb) {
+            return;
+        }
+        toggleOrderToBill(cb.getAttribute("data-order-id"), cb.checked);
     });
 
     el.btnAddRow.addEventListener("click", function() {
@@ -1096,12 +1752,21 @@
     el.customerName.addEventListener("input", queryCustomerByName);
     el.customerPhone.addEventListener("input", queryCustomerByPhone);
 
+    tmEl.btnOpen.addEventListener("click", openTmOrderModal);
+    tmEl.btnSave.addEventListener("click", saveTmOrder);
+    tmEl.customerName.addEventListener("input", queryTmCustomerByName);
+    tmEl.orderType.addEventListener("change", updateTmOrderStockNote);
+    tmEl.orderQty.addEventListener("input", updateTmOrderStockNote);
+
     document.addEventListener("click", function(e) {
         if (e.target !== el.customerName) {
             removeCustomerDropdown("name");
         }
         if (e.target !== el.customerPhone) {
             removeCustomerDropdown("phone");
+        }
+        if (e.target !== tmEl.customerName) {
+            removeTmCustomerDropdown();
         }
     });
 

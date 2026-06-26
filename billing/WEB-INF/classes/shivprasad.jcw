@@ -2,16 +2,16 @@
 
 <workspace>
 	<settings>
-		<label>gold</label>
+		<label>shivprasad</label>
 	</settings>
 	<users>
 		<user>
-			<path>gold.jcu</path>
+			<path>shivprasad.jcu</path>
 		</user>
 	</users>
 	<projects>
 		<project>
-			<path>gold.jcp</path>
+			<path>shivprasad.jcp</path>
 		</project>
 	</projects>
 </workspace>

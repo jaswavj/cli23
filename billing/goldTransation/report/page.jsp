@@ -45,7 +45,7 @@
 
         .gr-kpi-grid {
             display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(0, 1fr));
             gap: 12px;
         }
 
@@ -88,6 +88,113 @@
 
         .gr-kpi-due .gr-kpi-value {
             color: #24466f;
+        }
+
+        .gr-kpi-unbilled {
+            background: linear-gradient(135deg, #f3eef8, #e8dff0);
+            border-color: #d4c6e2;
+        }
+
+        .gr-kpi-unbilled .gr-kpi-split-value {
+            color: #5b3d7a;
+        }
+
+        .gr-kpi-unbilled.gr-kpi-clickable {
+            cursor: pointer;
+        }
+
+        .gr-kpi-unbilled.gr-kpi-clickable:hover {
+            box-shadow: 0 8px 18px rgba(91, 61, 122, 0.14);
+        }
+
+        .gr-unbilled-modal-section {
+            margin-bottom: 16px;
+        }
+
+        .gr-unbilled-modal-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .gr-unbilled-modal-title {
+            font-size: 0.82rem;
+            font-weight: 800;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: #5b3d7a;
+            margin-bottom: 8px;
+        }
+
+        .gr-unbilled-modal-wrap {
+            max-height: 220px;
+            overflow: auto;
+            border: 1px solid #ddd2e8;
+            border-radius: 8px;
+        }
+
+        .gr-unbilled-modal-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.84rem;
+        }
+
+        .gr-unbilled-modal-table th,
+        .gr-unbilled-modal-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eee8f3;
+            text-align: left;
+        }
+
+        .gr-unbilled-modal-table th {
+            background: #f6f1fa;
+            color: #5f4a72;
+            font-size: 0.74rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .gr-unbilled-modal-table td.text-end {
+            text-align: right;
+        }
+
+        .gr-unbilled-empty {
+            padding: 14px;
+            text-align: center;
+            color: #7a6d8d;
+            font-size: 0.84rem;
+        }
+
+        .gr-kpi-split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .gr-kpi-split-item {
+            text-align: center;
+            padding: 4px 0;
+        }
+
+        .gr-kpi-split-value {
+            font-size: 1.35rem;
+            font-weight: 800;
+            line-height: 1.2;
+        }
+
+        .gr-kpi-split-label {
+            margin-top: 2px;
+            font-size: 0.72rem;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: #6b6078;
+            font-weight: 700;
+        }
+
+        .gr-kpi-split-qty {
+            margin-top: 2px;
+            font-size: 0.78rem;
+            color: #7a6d8d;
+            font-weight: 600;
         }
 
         .gr-kpi-label {
@@ -339,7 +446,7 @@
 
         @media (max-width: 900px) {
             .gr-kpi-grid {
-                grid-template-columns: 1fr;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
             }
 
             .gr-tabs {
@@ -396,6 +503,22 @@
                 <div class="gr-kpi-label">Customer Balance</div>
                 <div class="gr-kpi-value" id="cardCustomerDue">0.00</div>
                 <div class="gr-kpi-note">Based on customer bill dues</div>
+            </div>
+            <div class="gr-kpi gr-kpi-unbilled gr-kpi-clickable" id="cardUnbilledStock" title="Click to view unbilled TM orders">
+                <div class="gr-kpi-label">Unbilled Stock</div>
+                <div class="gr-kpi-split">
+                    <div class="gr-kpi-split-item">
+                        <div class="gr-kpi-split-value" id="cardUnbilledPurchaseCount">0</div>
+                        <div class="gr-kpi-split-label">Purchase</div>
+                        <div class="gr-kpi-split-qty" id="cardUnbilledPurchaseQty">0.000 g</div>
+                    </div>
+                    <div class="gr-kpi-split-item">
+                        <div class="gr-kpi-split-value" id="cardUnbilledSaleCount">0</div>
+                        <div class="gr-kpi-split-label">Sale</div>
+                        <div class="gr-kpi-split-qty" id="cardUnbilledSaleQty">0.000 g</div>
+                    </div>
+                </div>
+                <div class="gr-kpi-note">Pending TM orders not billed</div>
             </div>
         </div>
     </div>
@@ -485,7 +608,12 @@
         reportFoot: document.getElementById("reportFoot"),
         cardCurrentStock: document.getElementById("cardCurrentStock"),
         cardTotalCredit: document.getElementById("cardTotalCredit"),
-        cardCustomerDue: document.getElementById("cardCustomerDue")
+        cardCustomerDue: document.getElementById("cardCustomerDue"),
+        cardUnbilledPurchaseCount: document.getElementById("cardUnbilledPurchaseCount"),
+        cardUnbilledPurchaseQty: document.getElementById("cardUnbilledPurchaseQty"),
+        cardUnbilledSaleCount: document.getElementById("cardUnbilledSaleCount"),
+        cardUnbilledSaleQty: document.getElementById("cardUnbilledSaleQty"),
+        cardUnbilledStock: document.getElementById("cardUnbilledStock")
     };
 
     var activeType = "creditList";
@@ -610,7 +738,18 @@
 
     function loadSummaryCards() {
         fetch(getCtx() + "/goldTransation/report/getData.jsp?mode=summary_cards")
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                return r.text().then(function(text) {
+                    if (!r.ok) {
+                        throw new Error("Server error (" + r.status + ")");
+                    }
+                    try {
+                        return JSON.parse(text);
+                    } catch (parseErr) {
+                        throw new Error("Invalid server response");
+                    }
+                });
+            })
             .then(function(data) {
                 if (!data || !data.success || !data.cards) {
                     return;
@@ -618,12 +757,86 @@
                 el.cardCurrentStock.textContent = tm(data.cards.currentStockTM);
                 el.cardTotalCredit.textContent = money(data.cards.totalCredit);
                 el.cardCustomerDue.textContent = money(data.cards.customerDue);
+                el.cardUnbilledPurchaseCount.textContent = String(data.cards.unbilledPurchaseCount || 0);
+                el.cardUnbilledSaleCount.textContent = String(data.cards.unbilledSaleCount || 0);
+                el.cardUnbilledPurchaseQty.textContent = tm(data.cards.unbilledPurchaseQty || 0) + " g";
+                el.cardUnbilledSaleQty.textContent = tm(data.cards.unbilledSaleQty || 0) + " g";
             })
             .catch(function() {
                 el.cardCurrentStock.textContent = "0.000";
                 el.cardTotalCredit.textContent = "0.00";
                 el.cardCustomerDue.textContent = "0.00";
+                el.cardUnbilledPurchaseCount.textContent = "0";
+                el.cardUnbilledSaleCount.textContent = "0";
+                el.cardUnbilledPurchaseQty.textContent = "0.000 g";
+                el.cardUnbilledSaleQty.textContent = "0.000 g";
             });
+    }
+
+    function escHtml(val) {
+        return String(val == null ? "" : val)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;");
+    }
+
+    function buildUnbilledOrdersTableHtml(rows, title) {
+        var html = "<div class='gr-unbilled-modal-section'>";
+        html += "<div class='gr-unbilled-modal-title'>" + escHtml(title) + "</div>";
+        html += "<div class='gr-unbilled-modal-wrap'>";
+
+        if (!rows || !rows.length) {
+            html += "<div class='gr-unbilled-empty'>No unbilled orders</div>";
+        } else {
+            html += "<table class='gr-unbilled-modal-table'><thead><tr>";
+            html += "<th>#</th><th>Customer</th><th>Order</th><th>Date</th><th class='text-end'>Qty (g)</th>";
+            html += "</tr></thead><tbody>";
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                html += "<tr>";
+                html += "<td>" + (i + 1) + "</td>";
+                html += "<td>" + escHtml(row.customerName || "-") + "</td>";
+                html += "<td>#" + escHtml(row.orderId || "") + "</td>";
+                html += "<td>" + escHtml(toDisplayDate(row.orderDate || "")) + "</td>";
+                html += "<td class='text-end'>" + tm(row.qty || 0) + "</td>";
+                html += "</tr>";
+            }
+            html += "</tbody></table>";
+        }
+
+        html += "</div></div>";
+        return html;
+    }
+
+    function openUnbilledOrdersModal() {
+        Swal.fire({
+            title: "Unbilled TM Orders",
+            html: "<div style='text-align:center;color:#7a6d8d;padding:20px;'>Loading...</div>",
+            width: 760,
+            showConfirmButton: true,
+            confirmButtonText: "Close",
+            confirmButtonColor: "#5b3d7a",
+            showCancelButton: false,
+            didOpen: function() {
+                fetch(getCtx() + "/goldTransation/report/getData.jsp?mode=unbilled_orders", {
+                    credentials: "same-origin"
+                })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (!data || !data.success) {
+                        throw new Error(data && data.message ? data.message : "Unable to load unbilled orders");
+                    }
+                    var html = buildUnbilledOrdersTableHtml(data.purchaseRows || [], "Purchase Orders");
+                    html += buildUnbilledOrdersTableHtml(data.saleRows || [], "Sale Orders");
+                    Swal.getHtmlContainer().innerHTML = html;
+                })
+                .catch(function(err) {
+                    Swal.getHtmlContainer().innerHTML =
+                        "<div class='gr-unbilled-empty'>" + escHtml(err.message || "Unable to load unbilled orders") + "</div>";
+                });
+            }
+        });
     }
 
     function openOpeningBalanceModal() {
@@ -1719,7 +1932,18 @@
         }
 
         fetch(url)
-            .then(function(r) { return r.json(); })
+            .then(function(r) {
+                return r.text().then(function(text) {
+                    if (!r.ok) {
+                        throw new Error("Server error (" + r.status + ")");
+                    }
+                    try {
+                        return JSON.parse(text);
+                    } catch (parseErr) {
+                        throw new Error("Invalid server response. Redeploy goldBillingBean.class and run gold_order SQL.");
+                    }
+                });
+            })
             .then(function(data) {
                 el.btnLoad.disabled = false;
                 if (!data.success) {
@@ -1755,6 +1979,7 @@
 
     el.btnLoad.addEventListener("click", loadReport);
     el.btnOpeningBalance.addEventListener("click", openOpeningBalanceModal);
+    el.cardUnbilledStock.addEventListener("click", openUnbilledOrdersModal);
     el.btnTabPrint.addEventListener("click", printActiveTab);
     el.btnTabXlsx.addEventListener("click", exportActiveTab);
     el.fromDate.addEventListener("change", loadReport);

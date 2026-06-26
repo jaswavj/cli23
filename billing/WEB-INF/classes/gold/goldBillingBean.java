@@ -520,7 +520,8 @@ public class goldBillingBean {
             boolean isSale,
             boolean isPurchase,
             Vector items,
-            Vector payments) throws Exception {
+            Vector payments,
+            Vector orderIds) throws Exception {
 
         Connection con = null;
         PreparedStatement psMaster = null;
@@ -546,7 +547,20 @@ public class goldBillingBean {
                 totalQty += parseD(item.elementAt(1));
             }
 
-            if (isSale && totalQty > 0) {
+            double orderQty = 0.0;
+            if (orderIds != null && orderIds.size() > 0) {
+                if (customerId <= 0) {
+                    throw new Exception("Select customer to bill TM orders");
+                }
+                orderQty = validateGoldOrdersForBill(con, orderIds, customerId, isSale, isPurchase);
+            }
+
+            double nonOrderQty = totalQty - orderQty;
+            if (nonOrderQty < -0.0001) {
+                throw new Exception("Line qty is less than selected TM order qty");
+            }
+
+            if (isSale && nonOrderQty > 0) {
                 psStockCheck = con.prepareStatement(
                     "SELECT COALESCE(stock, 0) AS stock FROM gold_stock WHERE prods_id = ? FOR UPDATE");
                 psStockCheck.setInt(1, 1);
@@ -560,9 +574,21 @@ public class goldBillingBean {
                 psStockCheck.close();
                 psStockCheck = null;
 
-                if (totalQty > currentStock) {
+                if (nonOrderQty > currentStock) {
                     throw new Exception("Insufficient stock. Current stock is " + String.format("%.3f", currentStock));
                 }
+            } else if (isSale && nonOrderQty <= 0 && orderQty > 0) {
+                psStockCheck = con.prepareStatement(
+                    "SELECT id FROM gold_stock WHERE prods_id = ? FOR UPDATE");
+                psStockCheck.setInt(1, 1);
+                rs = psStockCheck.executeQuery();
+                if (!rs.next()) {
+                    throw new Exception("Gold stock row not found");
+                }
+                rs.close();
+                rs = null;
+                psStockCheck.close();
+                psStockCheck = null;
             }
 
             // 1) Insert master
@@ -724,8 +750,8 @@ public class goldBillingBean {
                 }
             }
 
-            // 6) Update gold_stock in the same transaction (prods_id = 1)
-            double deltaQty = isPurchase ? totalQty : (isSale ? -totalQty : 0.0);
+            // 6) Update gold_stock for non-order qty (order qty handled separately)
+            double deltaQty = isPurchase ? nonOrderQty : (isSale ? -nonOrderQty : 0.0);
             if (deltaQty != 0.0) {
                 psGoldStock = con.prepareStatement(
                     "UPDATE gold_stock SET stock = COALESCE(stock, 0) + ? WHERE prods_id = ?");
@@ -747,6 +773,8 @@ public class goldBillingBean {
                     psGoldStock = null;
                 }
             }
+
+            applyGoldOrdersOnBill(con, billId, customerId, isSale, isPurchase, orderIds);
 
             // 7) Insert gold transaction ledger summary row
             psTxnLedger = con.prepareStatement(
@@ -959,7 +987,8 @@ public class goldBillingBean {
 
     /**
      * Summary for report cards without date filter.
-     * Returns Vector: [currentStock, totalAdvanceCredit, totalDueFromCustomers]
+     * Returns Vector: [currentStock, totalAdvanceCredit, totalDueFromCustomers,
+     *                  unbilledPurchaseCount, unbilledSaleCount, unbilledPurchaseQty, unbilledSaleQty]
      */
     public Vector getGoldTransactionSummaryCards() throws Exception {
         Connection con = null;
@@ -970,6 +999,10 @@ public class goldBillingBean {
         double currentStock = 0.0;
         double totalAdvance = 0.0;
         double totalDue = 0.0;
+        int unbilledPurchaseCount = 0;
+        int unbilledSaleCount = 0;
+        double unbilledPurchaseQty = 0.0;
+        double unbilledSaleQty = 0.0;
 
         try {
             con = getConn();
@@ -1004,14 +1037,97 @@ public class goldBillingBean {
                     totalDue = rs.getDouble("total_due");
                 }
             }
+            close(rs, ps, null);
+            rs = null;
+            ps = null;
+
+            try {
+                ps = con.prepareStatement(
+                    "SELECT " +
+                    "COALESCE(SUM(CASE WHEN type = 1 THEN 1 ELSE 0 END), 0) AS purchase_count, " +
+                    "COALESCE(SUM(CASE WHEN type = 2 THEN 1 ELSE 0 END), 0) AS sale_count, " +
+                    "COALESCE(SUM(CASE WHEN type = 1 THEN qty ELSE 0 END), 0) AS purchase_qty, " +
+                    "COALESCE(SUM(CASE WHEN type = 2 THEN qty ELSE 0 END), 0) AS sale_qty " +
+                    "FROM gold_order WHERE is_billed = 0 AND is_cancelled = 0");
+                rs = ps.executeQuery();
+                if (rs.next()) {
+                    unbilledPurchaseCount = rs.getInt("purchase_count");
+                    unbilledSaleCount = rs.getInt("sale_count");
+                    unbilledPurchaseQty = rs.getDouble("purchase_qty");
+                    unbilledSaleQty = rs.getDouble("sale_qty");
+                }
+            } catch (SQLException orderEx) {
+                // gold_order table may not exist yet on older deployments
+            } finally {
+                close(rs, ps, null);
+                rs = null;
+                ps = null;
+            }
 
             out.addElement(String.valueOf(currentStock));
             out.addElement(String.valueOf(totalAdvance));
             out.addElement(String.valueOf(totalDue));
+            out.addElement(String.valueOf(unbilledPurchaseCount));
+            out.addElement(String.valueOf(unbilledSaleCount));
+            out.addElement(String.valueOf(unbilledPurchaseQty));
+            out.addElement(String.valueOf(unbilledSaleQty));
             return out;
         } finally {
             close(rs, ps, con);
         }
+    }
+
+    /**
+     * Unbilled TM order details for report modal.
+     * Returns Vector: [purchaseRows, saleRows]
+     * Each row: [orderId, customerId, customerName, qty, orderDate]
+     */
+    public Vector getUnbilledGoldOrderDetails() throws Exception {
+        Connection con = null;
+        Vector out = new Vector();
+
+        try {
+            con = getConn();
+            out.addElement(fetchUnbilledGoldOrderRows(con, 1));
+            out.addElement(fetchUnbilledGoldOrderRows(con, 2));
+            return out;
+        } finally {
+            if (con != null) {
+                try { con.close(); } catch (Exception e) { }
+            }
+        }
+    }
+
+    private Vector fetchUnbilledGoldOrderRows(Connection con, int orderType) throws Exception {
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+        Vector major = new Vector();
+
+        try {
+            ps = con.prepareStatement(
+                "SELECT go.id, go.customer_id, c.name AS customer_name, go.qty, " +
+                "DATE_FORMAT(go.order_date_time, '%Y-%m-%d') AS order_date " +
+                "FROM gold_order go " +
+                "INNER JOIN customers c ON c.id = go.customer_id " +
+                "WHERE go.is_billed = 0 AND go.is_cancelled = 0 AND go.type = ? " +
+                "ORDER BY c.name ASC, go.order_date_time ASC, go.id ASC");
+            ps.setInt(1, orderType);
+            rs = ps.executeQuery();
+            while (rs.next()) {
+                Vector row = new Vector();
+                row.addElement(rs.getString("id"));
+                row.addElement(rs.getString("customer_id"));
+                row.addElement(rs.getString("customer_name"));
+                row.addElement(rs.getString("qty"));
+                row.addElement(rs.getString("order_date"));
+                major.addElement(row);
+            }
+        } catch (SQLException orderEx) {
+            // gold_order table may not exist yet
+        } finally {
+            close(rs, ps, null);
+        }
+        return major;
     }
 
     /**
@@ -2223,6 +2339,339 @@ public class goldBillingBean {
             }
         } finally {
             close(rs, ps, null);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════
+    // GOLD TM ORDER
+    // ═══════════════════════════════════════════════════
+
+    public Vector getPendingGoldOrdersByCustomer(int customerId) throws Exception {
+        Connection con = null;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            if (customerId <= 0) {
+                return new Vector();
+            }
+
+            con = getConn();
+            Vector major = new Vector();
+            ps = con.prepareStatement(
+                "SELECT id, type, qty, DATE_FORMAT(order_date_time, '%Y-%m-%d') AS order_date " +
+                "FROM gold_order " +
+                "WHERE customer_id = ? AND is_billed = 0 AND is_cancelled = 0 " +
+                "ORDER BY order_date_time ASC, id ASC");
+            ps.setInt(1, customerId);
+            rs = ps.executeQuery();
+            while (rs.next()) {
+                Vector row = new Vector();
+                row.addElement(rs.getString("id"));
+                row.addElement(rs.getString("type"));
+                row.addElement(rs.getString("qty"));
+                row.addElement(rs.getString("order_date"));
+                major.addElement(row);
+            }
+            return major;
+        } finally {
+            close(rs, ps, con);
+        }
+    }
+
+    private double validateGoldOrdersForBill(
+            Connection con,
+            Vector orderIds,
+            int customerId,
+            boolean isSale,
+            boolean isPurchase) throws Exception {
+
+        if (orderIds == null || orderIds.size() == 0) {
+            return 0.0;
+        }
+
+        double totalOrderQty = 0.0;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            for (int i = 0; i < orderIds.size(); i++) {
+                int orderId = 0;
+                try {
+                    orderId = Integer.parseInt(String.valueOf(orderIds.elementAt(i)));
+                } catch (Exception ex) {
+                    throw new Exception("Invalid TM order id");
+                }
+                if (orderId <= 0) {
+                    continue;
+                }
+
+                ps = con.prepareStatement(
+                    "SELECT id, customer_id, qty, type, is_billed, is_cancelled " +
+                    "FROM gold_order WHERE id = ? FOR UPDATE");
+                ps.setInt(1, orderId);
+                rs = ps.executeQuery();
+                if (!rs.next()) {
+                    throw new Exception("TM Order #" + orderId + " not found");
+                }
+                if (rs.getInt("customer_id") != customerId) {
+                    throw new Exception("TM Order #" + orderId + " does not belong to selected customer");
+                }
+                if (rs.getInt("is_billed") == 1) {
+                    throw new Exception("TM Order #" + orderId + " is already billed");
+                }
+                if (rs.getInt("is_cancelled") == 1) {
+                    throw new Exception("TM Order #" + orderId + " is cancelled");
+                }
+
+                int orderType = rs.getInt("type");
+                if (isPurchase && orderType != 1) {
+                    throw new Exception("TM Order #" + orderId + " is not a purchase order");
+                }
+                if (isSale && orderType != 2) {
+                    throw new Exception("TM Order #" + orderId + " is not a sale order");
+                }
+
+                totalOrderQty += rs.getDouble("qty");
+                close(rs, ps, null);
+                rs = null;
+                ps = null;
+            }
+            return totalOrderQty;
+        } finally {
+            close(rs, ps, null);
+        }
+    }
+
+    private void applyGoldOrdersOnBill(
+            Connection con,
+            int billId,
+            int customerId,
+            boolean isSale,
+            boolean isPurchase,
+            Vector orderIds) throws Exception {
+
+        if (orderIds == null || orderIds.size() == 0) {
+            return;
+        }
+
+        int prodsId = 1;
+        PreparedStatement ps = null;
+        ResultSet rs = null;
+
+        try {
+            for (int i = 0; i < orderIds.size(); i++) {
+                int orderId = 0;
+                try {
+                    orderId = Integer.parseInt(String.valueOf(orderIds.elementAt(i)));
+                } catch (Exception ex) {
+                    throw new Exception("Invalid TM order id");
+                }
+                if (orderId <= 0) {
+                    continue;
+                }
+
+                ps = con.prepareStatement(
+                    "SELECT id, customer_id, qty, type, is_billed, is_cancelled " +
+                    "FROM gold_order WHERE id = ? FOR UPDATE");
+                ps.setInt(1, orderId);
+                rs = ps.executeQuery();
+                if (!rs.next()) {
+                    throw new Exception("TM Order #" + orderId + " not found");
+                }
+                if (rs.getInt("customer_id") != customerId) {
+                    throw new Exception("TM Order #" + orderId + " does not belong to selected customer");
+                }
+                if (rs.getInt("is_billed") == 1) {
+                    throw new Exception("TM Order #" + orderId + " is already billed");
+                }
+                if (rs.getInt("is_cancelled") == 1) {
+                    throw new Exception("TM Order #" + orderId + " is cancelled");
+                }
+
+                int orderType = rs.getInt("type");
+                double qty = rs.getDouble("qty");
+                if (isPurchase && orderType != 1) {
+                    throw new Exception("TM Order #" + orderId + " is not a purchase order");
+                }
+                if (isSale && orderType != 2) {
+                    throw new Exception("TM Order #" + orderId + " is not a sale order");
+                }
+
+                close(rs, ps, null);
+                rs = null;
+                ps = null;
+
+                ps = con.prepareStatement(
+                    "UPDATE gold_order SET is_billed = 1, bill_id = ? " +
+                    "WHERE id = ? AND is_billed = 0 AND is_cancelled = 0");
+                ps.setInt(1, billId);
+                ps.setInt(2, orderId);
+                if (ps.executeUpdate() <= 0) {
+                    throw new Exception("Failed to mark TM Order #" + orderId + " as billed");
+                }
+                close(null, ps, null);
+                ps = null;
+
+                if (orderType == 1) {
+                    ps = con.prepareStatement(
+                        "UPDATE gold_stock SET stock = COALESCE(stock, 0) + ?, " +
+                        "purchase_order_stock = COALESCE(purchase_order_stock, 0) - ? " +
+                        "WHERE prods_id = ? AND COALESCE(purchase_order_stock, 0) >= ?");
+                    ps.setDouble(1, qty);
+                    ps.setDouble(2, qty);
+                    ps.setInt(3, prodsId);
+                    ps.setDouble(4, qty);
+                } else {
+                    ps = con.prepareStatement(
+                        "UPDATE gold_stock SET sale_order_stock = COALESCE(sale_order_stock, 0) - ? " +
+                        "WHERE prods_id = ? AND COALESCE(sale_order_stock, 0) >= ?");
+                    ps.setDouble(1, qty);
+                    ps.setInt(2, prodsId);
+                    ps.setDouble(3, qty);
+                }
+
+                if (ps.executeUpdate() <= 0) {
+                    throw new Exception("Failed to update stock for TM Order #" + orderId);
+                }
+                close(null, ps, null);
+                ps = null;
+            }
+        } finally {
+            close(rs, ps, null);
+        }
+    }
+
+    /**
+     * Save TM order (purchase=1, sale=2).
+     * Sale: reduce gold_stock.stock and add to sale_order_stock.
+     * Purchase: add qty to purchase_order_stock.
+     */
+    public int saveGoldOrder(
+            int customerId,
+            int userId,
+            String orderDate,
+            int orderType,
+            double qty) throws Exception {
+
+        Connection con = null;
+        PreparedStatement ps = null;
+        PreparedStatement psStockCheck = null;
+        PreparedStatement psGoldStock = null;
+        ResultSet rs = null;
+
+        try {
+            if (customerId <= 0) {
+                throw new Exception("Select a valid customer");
+            }
+            if (userId <= 0) {
+                throw new Exception("Invalid user");
+            }
+            if (orderDate == null || orderDate.trim().length() == 0) {
+                throw new Exception("Select order date");
+            }
+            if (orderType != 1 && orderType != 2) {
+                throw new Exception("Select purchase or sale order");
+            }
+            if (qty <= 0) {
+                throw new Exception("Enter valid TM qty in grams");
+            }
+
+            Timestamp orderTs = parseTxnTimestamp(orderDate.trim(), "00:00:00");
+            boolean isSale = orderType == 2;
+            int prodsId = 1;
+
+            con = getConn();
+            con.setAutoCommit(false);
+
+            psStockCheck = con.prepareStatement(
+                "SELECT COALESCE(stock, 0) AS stock, " +
+                "       COALESCE(purchase_order_stock, 0) AS purchase_order_stock, " +
+                "       COALESCE(sale_order_stock, 0) AS sale_order_stock " +
+                "FROM gold_stock WHERE prods_id = ? FOR UPDATE");
+            psStockCheck.setInt(1, prodsId);
+            rs = psStockCheck.executeQuery();
+
+            double currentStock = 0.0;
+            boolean stockRowExists = rs.next();
+            if (stockRowExists) {
+                currentStock = rs.getDouble("stock");
+            }
+            close(rs, psStockCheck, null);
+            rs = null;
+            psStockCheck = null;
+
+            if (isSale) {
+                if (!stockRowExists || qty > currentStock) {
+                    throw new Exception("Insufficient stock. Current stock is "
+                        + String.format("%.3f", stockRowExists ? currentStock : 0.0));
+                }
+
+                psGoldStock = con.prepareStatement(
+                    "UPDATE gold_stock SET stock = COALESCE(stock, 0) - ?, " +
+                    "sale_order_stock = COALESCE(sale_order_stock, 0) + ? " +
+                    "WHERE prods_id = ?");
+                psGoldStock.setDouble(1, qty);
+                psGoldStock.setDouble(2, qty);
+                psGoldStock.setInt(3, prodsId);
+                if (psGoldStock.executeUpdate() <= 0) {
+                    throw new Exception("Failed to update gold stock for sale order");
+                }
+                close(null, psGoldStock, null);
+                psGoldStock = null;
+            } else {
+                if (stockRowExists) {
+                    psGoldStock = con.prepareStatement(
+                        "UPDATE gold_stock SET purchase_order_stock = COALESCE(purchase_order_stock, 0) + ? " +
+                        "WHERE prods_id = ?");
+                    psGoldStock.setDouble(1, qty);
+                    psGoldStock.setInt(2, prodsId);
+                    if (psGoldStock.executeUpdate() <= 0) {
+                        throw new Exception("Failed to update purchase order stock");
+                    }
+                } else {
+                    psGoldStock = con.prepareStatement(
+                        "INSERT INTO gold_stock (prods_id, stock, purchase_order_stock, sale_order_stock) " +
+                        "VALUES (?, 0, ?, 0)");
+                    psGoldStock.setInt(1, prodsId);
+                    psGoldStock.setDouble(2, qty);
+                    if (psGoldStock.executeUpdate() <= 0) {
+                        throw new Exception("Failed to insert gold stock row for purchase order");
+                    }
+                }
+                close(null, psGoldStock, null);
+                psGoldStock = null;
+            }
+
+            ps = con.prepareStatement(
+                "INSERT INTO gold_order " +
+                "(customer_id, is_billed, order_date_time, user_id, is_cancelled, qty, type, enter_date_time) " +
+                "VALUES (?, 0, ?, ?, 0, ?, ?, NOW())",
+                Statement.RETURN_GENERATED_KEYS);
+            ps.setInt(1, customerId);
+            ps.setTimestamp(2, orderTs);
+            ps.setInt(3, userId);
+            ps.setDouble(4, qty);
+            ps.setInt(5, orderType);
+            if (ps.executeUpdate() <= 0) {
+                throw new Exception("Failed to save TM order");
+            }
+
+            rs = ps.getGeneratedKeys();
+            if (!rs.next()) {
+                throw new Exception("Failed to read TM order id");
+            }
+            int orderId = rs.getInt(1);
+
+            con.commit();
+            return orderId;
+        } catch (Exception e) {
+            if (con != null) {
+                try { con.rollback(); } catch (Exception ex) { }
+            }
+            throw e;
+        } finally {
+            close(rs, ps, con);
         }
     }
 

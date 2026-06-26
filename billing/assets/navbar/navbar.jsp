@@ -94,6 +94,8 @@ for (int i = 0; i < vecPer.size(); i++) {
       <i class="fas fa-arrow-right-arrow-left"></i>
       <span>Gold Transaction</span>
     </a>
+    <% } %>
+    <% if (permissions.contains(2)) { %>
     <a href="<%=request.getContextPath()%>/goldTransation/report/page.jsp" class="sidebar-item">
       <i class="fas fa-chart-column"></i>
       <span>Gold Transaction Report</span>
@@ -101,11 +103,13 @@ for (int i = 0; i < vecPer.size(); i++) {
     <% } %>
 
     <!-- Permission 2: Bank Management -->
-    <% if (permissions.contains(2)) { %>
+    <% if (permissions.contains(3)) { %>
     <a href="<%=request.getContextPath()%>/product/master/bankManage/page.jsp" class="sidebar-item">
       <i class="fas fa-building-columns"></i>
       <span>Bank Management</span>
     </a>
+    <% } %>
+    <% if (permissions.contains(4)) { %>
     <a href="<%=request.getContextPath()%>/emi/entry/page.jsp" class="sidebar-item">
       <i class="fas fa-calendar-check"></i>
       <span>EMI Entry</span>
@@ -113,7 +117,7 @@ for (int i = 0; i < vecPer.size(); i++) {
     <% } %>
 
     <!-- Permission 2: Master menu (Customer & Bank) -->
-    <% if (permissions.contains(2)) { %>
+    <% if (permissions.contains(5)) { %>
     <div class="sidebar-dropdown">
       <a href="#" class="sidebar-item" data-bs-toggle="collapse" data-bs-target="#masterMenu">
         <i class="fas fa-database"></i>
@@ -127,8 +131,23 @@ for (int i = 0; i < vecPer.size(); i++) {
     </div>
     <% } %>
 
+    <!-- Melting menu under permission 2 -->
+    <% if (permissions.contains(6)) { %>
+    <div class="sidebar-dropdown">
+      <a href="#" class="sidebar-item" data-bs-toggle="collapse" data-bs-target="#meltingMenu">
+        <i class="fas fa-fire-flame-curved"></i>
+        <span>Melting</span>
+        <i class="fas fa-chevron-down ms-auto"></i>
+      </a>
+      <div class="collapse sidebar-submenu" id="meltingMenu">
+        <a href="<%=request.getContextPath()%>/melting/entry/page.jsp" class="sidebar-subitem">Melting Entry</a>
+        <a href="<%=request.getContextPath()%>/melting/report/page.jsp" class="sidebar-subitem">Melting Report</a>
+      </div>
+    </div>
+    <% } %>
+
     <!-- Expense menu under permission 2 -->
-    <% if (permissions.contains(2)) { %>
+    <% if (permissions.contains(7)) { %>
     <div class="sidebar-dropdown">
       <a href="#" class="sidebar-item" data-bs-toggle="collapse" data-bs-target="#expenseMenu">
         <i class="fas fa-wallet"></i>
@@ -144,7 +163,7 @@ for (int i = 0; i < vecPer.size(); i++) {
     <% } %>
 
     <!-- 6: Admin menu with dropdown (includes User Management + Company Details) -->
-    <% if (permissions.contains(4) || permissions.contains(7)) { %>
+    <% if (permissions.contains(8) ) { %>
     <div class="sidebar-dropdown">
       <a href="#" class="sidebar-item" data-bs-toggle="collapse" data-bs-target="#adminMenu">
         <i class="fas fa-user-shield"></i>

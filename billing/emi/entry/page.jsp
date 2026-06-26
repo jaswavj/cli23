@@ -21,6 +21,9 @@ if (userId == null) {
         .badge-borrow { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
         .badge-give { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
         .badge-completed { background: #dcfce7; color: #166534; border: 1px solid #86efac; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+        .badge-normal { background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+        .badge-interest { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
+        .badge-ongoing { background: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; padding: 4px 10px; border-radius: 999px; font-size: 0.78rem; font-weight: 600; }
         .inst-paid { color: #0f766e; font-weight: 600; }
         .inst-pending { color: #b45309; font-weight: 600; }
         .schedule-wrap { max-height: 220px; overflow: auto; border: 1px solid #dbe7e5; border-radius: 8px; }
@@ -71,22 +74,33 @@ String type = request.getParameter("type");
                                 <option value="give">Give</option>
                             </select>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-semibold">Dept Type</label>
+                            <select name="deptType" id="deptType" class="form-select" required>
+                                <option value="normal">Normal</option>
+                                <option value="interest">Interest</option>
+                            </select>
+                        </div>
                         <div class="col-md-6 input-outline">
                             <input type="number" name="totalAmount" id="totalAmount" class="form-control" min="0.01" step="0.01" required placeholder="">
                             <label>Total Amount</label>
                         </div>
-                        <div class="col-md-6 input-outline">
+                        <div class="col-md-6 input-outline normal-field">
                             <input type="number" name="emiAmount" id="emiAmount" class="form-control" min="0.01" step="0.01" required placeholder="">
                             <label>EMI Amount (monthly)</label>
                         </div>
-                        <div class="col-md-6 input-outline">
+                        <div class="col-md-6 input-outline normal-field">
                             <input type="number" name="emiMonths" id="emiMonths" class="form-control" min="1" step="1" required placeholder="">
                             <label>EMI Months</label>
                         </div>
+                        <div class="col-md-6 input-outline interest-field" style="display:none;">
+                            <input type="number" name="interestPerMonth" id="interestPerMonth" class="form-control" min="0.01" step="0.01" placeholder="">
+                            <label>Interest Per Month</label>
+                        </div>
                         <div class="col-12">
-                            <label class="form-label fw-semibold">First Due Date</label>
+                            <label class="form-label fw-semibold" id="dueDateLabel">First Due Date</label>
                             <input type="date" name="firstDueDate" id="firstDueDate" class="form-control" required>
-                            <small class="text-muted">Next months will be due on the same day each month.</small>
+                            <small class="text-muted" id="dueDateHint">Next months will be due on the same day each month.</small>
                         </div>
                         <div class="col-12">
                             <button type="submit" class="bb bb-primary w-100">Save EMI</button>
@@ -118,16 +132,17 @@ String type = request.getParameter("type");
                                         <th>#</th>
                                         <th>Customer</th>
                                         <th>Type</th>
+                                        <th>Dept</th>
                                         <th class="text-end">Total</th>
                                         <th>Phone</th>
-                                        <th class="text-end">Monthly EMI</th>
+                                        <th class="text-end">Monthly</th>
                                         <th class="text-center">Pending</th>
                                         <th>Next Due</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody id="pendingBody">
-                                    <tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
+                                    <tr><td colspan="10" class="text-center text-muted py-4">Loading...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -141,16 +156,17 @@ String type = request.getParameter("type");
                                         <th>#</th>
                                         <th>Customer</th>
                                         <th>Type</th>
+                                        <th>Dept</th>
                                         <th class="text-end">Total</th>
                                         <th>Phone</th>
-                                        <th class="text-end">Monthly EMI</th>
+                                        <th class="text-end">Monthly</th>
                                         <th class="text-center">Paid</th>
                                         <th>Completed On</th>
                                         <th>Action</th>
                                     </tr>
                                 </thead>
                                 <tbody id="completedBody">
-                                    <tr><td colspan="9" class="text-center text-muted py-4">Loading...</td></tr>
+                                    <tr><td colspan="10" class="text-center text-muted py-4">Loading...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -222,31 +238,71 @@ String type = request.getParameter("type");
         return "<span class='badge-borrow'>Borrow</span>";
     }
 
+    function deptTypeLabel(type) {
+        var t = String(type || "").toLowerCase();
+        if (t === "interest") {
+            return "<span class='badge-interest'>Interest</span>";
+        }
+        return "<span class='badge-normal'>Normal</span>";
+    }
+
+    function isInterestDept(type) {
+        return String(type || "").toLowerCase() === "interest";
+    }
+
+    function monthlyDisplay(r) {
+        if (isInterestDept(r.deptType)) {
+            return formatMoney(r.interestPerMonth || r.emiAmount);
+        }
+        return formatMoney(r.emiAmount);
+    }
+
+    function pendingStatusDisplay(r) {
+        if (isInterestDept(r.deptType)) {
+            return "<span class='badge-ongoing'>Ongoing (" + (r.paidCount || 0) + " paid)</span>";
+        }
+        return "<span class='badge-pending'>" + (r.pendingCount || 0) + " / " + (r.emiMonths || 0) + "</span>";
+    }
+
+    function completedStatusDisplay(r) {
+        if (isInterestDept(r.deptType)) {
+            return "<span class='badge-completed'>" + (r.paidCount || 0) + " paid</span>";
+        }
+        return "<span class='badge-completed'>" + (r.paidCount || 0) + " / " + (r.emiMonths || 0) + "</span>";
+    }
+
     function renderPending(rows) {
         var tbody = document.getElementById("pendingBody");
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No pending EMI customers</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No pending EMI customers</td></tr>';
             return;
         }
         var html = "";
         for (var i = 0; i < rows.length; i++) {
             var r = rows[i];
+            var payAmount = isInterestDept(r.deptType) ? (r.interestPerMonth || r.emiAmount) : r.emiAmount;
             html += "<tr>";
             html += "<td>" + (i + 1) + "</td>";
             html += "<td><strong>" + (r.customerName || "") + "</strong></td>";
             html += "<td>" + emiTypeLabel(r.emiType) + "</td>";
+            html += "<td>" + deptTypeLabel(r.deptType) + "</td>";
             html += "<td class='text-end'>" + formatMoney(r.totalAmount) + "</td>";
             html += "<td>" + (r.phoneNumber || "-") + "</td>";
-            html += "<td class='text-end'>" + formatMoney(r.emiAmount) + "</td>";
-            html += "<td class='text-center'><span class='badge-pending'>" + (r.pendingCount || 0) + " / " + (r.emiMonths || 0) + "</span></td>";
+            html += "<td class='text-end'>" + monthlyDisplay(r) + "</td>";
+            html += "<td class='text-center'>" + pendingStatusDisplay(r) + "</td>";
             html += "<td>" + formatDisplayDate(r.nextDueDate) + " <small class='text-muted'>(#" + (r.nextInstallmentNo || "") + ")</small></td>";
             html += "<td>";
             html += "<button type='button' class='bb bb-primary btn-sm me-1 pay-emi-btn' " +
                 "data-installment-id='" + escAttr(r.nextInstallmentId) + "' " +
                 "data-customer-name='" + escAttr(r.customerName) + "' " +
-                "data-amount='" + escAttr(r.emiAmount) + "' " +
+                "data-amount='" + escAttr(payAmount) + "' " +
                 "data-due-date='" + escAttr(formatDisplayDate(r.nextDueDate)) + "' " +
-                "data-installment-no='" + escAttr(r.nextInstallmentNo) + "'>Pay EMI</button>";
+                "data-installment-no='" + escAttr(r.nextInstallmentNo) + "'>Pay</button>";
+            if (isInterestDept(r.deptType)) {
+                html += "<button type='button' class='bb bb-outline btn-sm me-1 close-emi-btn' " +
+                    "data-customer-id='" + escAttr(r.emiCustomerId) + "' " +
+                    "data-customer-name='" + escAttr(r.customerName) + "'>Close</button>";
+            }
             html += "<button type='button' class='bb bb-outline btn-sm view-schedule-btn' " +
                 "data-customer-id='" + escAttr(r.emiCustomerId) + "' " +
                 "data-customer-name='" + escAttr(r.customerName) + "'>Schedule</button>";
@@ -259,7 +315,7 @@ String type = request.getParameter("type");
     function renderCompleted(rows) {
         var tbody = document.getElementById("completedBody");
         if (!rows.length) {
-            tbody.innerHTML = '<tr><td colspan="9" class="text-center text-muted py-4">No completed EMI customers</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No completed EMI customers</td></tr>';
             return;
         }
         var html = "";
@@ -269,10 +325,11 @@ String type = request.getParameter("type");
             html += "<td>" + (i + 1) + "</td>";
             html += "<td><strong>" + (r.customerName || "") + "</strong></td>";
             html += "<td>" + emiTypeLabel(r.emiType) + "</td>";
+            html += "<td>" + deptTypeLabel(r.deptType) + "</td>";
             html += "<td class='text-end'>" + formatMoney(r.totalAmount) + "</td>";
             html += "<td>" + (r.phoneNumber || "-") + "</td>";
-            html += "<td class='text-end'>" + formatMoney(r.emiAmount) + "</td>";
-            html += "<td class='text-center'><span class='badge-completed'>" + (r.paidCount || 0) + " / " + (r.emiMonths || 0) + "</span></td>";
+            html += "<td class='text-end'>" + monthlyDisplay(r) + "</td>";
+            html += "<td class='text-center'>" + completedStatusDisplay(r) + "</td>";
             html += "<td>" + formatDisplayDate(r.completedDate) + "</td>";
             html += "<td>";
             html += "<button type='button' class='bb bb-outline btn-sm view-schedule-btn' " +
@@ -334,6 +391,14 @@ String type = request.getParameter("type");
             );
             return;
         }
+        var closeBtn = e.target.closest(".close-emi-btn");
+        if (closeBtn) {
+            closeEmi(
+                closeBtn.getAttribute("data-customer-id"),
+                closeBtn.getAttribute("data-customer-name")
+            );
+            return;
+        }
         var scheduleBtn = e.target.closest(".view-schedule-btn");
         if (scheduleBtn) {
             viewSchedule(
@@ -358,6 +423,77 @@ String type = request.getParameter("type");
             setActiveTab(btn.getAttribute("data-tab"));
         });
     });
+
+    function closeEmi(emiCustomerId, customerName) {
+        Swal.fire({
+            title: "Close EMI?",
+            html: "<div style='text-align:left;line-height:1.7;'>" +
+                "<strong>Customer:</strong> " + customerName + "<br>" +
+                "This will stop future interest payments and move the account to completed." +
+                "</div>",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Close EMI",
+            confirmButtonColor: "#b45309"
+        }).then(function(result) {
+            if (!result.isConfirmed) return;
+
+            var body = new URLSearchParams();
+            body.append("mode", "close");
+            body.append("emiCustomerId", String(emiCustomerId));
+
+            fetch(contextPath + "/emi/entry/getData.jsp", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                body: body.toString()
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (!data || !data.success) {
+                    throw new Error(data && data.message ? data.message : "Unable to close EMI");
+                }
+                Swal.fire("Closed", data.message || "EMI closed", "success");
+                refreshActiveTab();
+            })
+            .catch(function(err) {
+                Swal.fire("Error", err.message || "Unable to close EMI", "error");
+            });
+        });
+    }
+
+    function toggleDeptFields() {
+        var deptType = document.getElementById("deptType").value;
+        var isInterest = deptType === "interest";
+        var normalFields = document.querySelectorAll(".normal-field");
+        var interestFields = document.querySelectorAll(".interest-field");
+        var emiAmount = document.getElementById("emiAmount");
+        var emiMonths = document.getElementById("emiMonths");
+        var interestPerMonth = document.getElementById("interestPerMonth");
+        var dueDateLabel = document.getElementById("dueDateLabel");
+        var dueDateHint = document.getElementById("dueDateHint");
+
+        for (var i = 0; i < normalFields.length; i++) {
+            normalFields[i].style.display = isInterest ? "none" : "";
+        }
+        for (var j = 0; j < interestFields.length; j++) {
+            interestFields[j].style.display = isInterest ? "" : "none";
+        }
+
+        if (isInterest) {
+            emiAmount.removeAttribute("required");
+            emiMonths.removeAttribute("required");
+            interestPerMonth.setAttribute("required", "required");
+            dueDateLabel.textContent = "Due Date";
+            dueDateHint.textContent = "Pay interest on this date every month until you close the account.";
+        } else {
+            emiAmount.setAttribute("required", "required");
+            emiMonths.setAttribute("required", "required");
+            interestPerMonth.removeAttribute("required");
+            dueDateLabel.textContent = "First Due Date";
+            dueDateHint.textContent = "Next months will be due on the same day each month.";
+        }
+    }
 
     function payEmi(installmentId, customerName, amount, dueDate, installmentNo) {
         Swal.fire({
@@ -448,6 +584,8 @@ String type = request.getParameter("type");
         if (firstDue && !firstDue.value) {
             firstDue.value = yyyy + "-" + mm + "-" + dd;
         }
+        document.getElementById("deptType").addEventListener("change", toggleDeptFields);
+        toggleDeptFields();
         refreshActiveTab();
         document.getElementById("customerName").focus();
     });

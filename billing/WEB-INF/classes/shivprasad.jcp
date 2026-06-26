@@ -2,7 +2,7 @@
 
 <project>
 	<settings>
-		<label>gold</label>
+		<label>shivprasad</label>
 		<root_path>\</root_path>
 		<output_path>\</output_path>
 		<source_path>\</source_path>
@@ -117,6 +117,10 @@
 			</fileitem>
 			<fileitem>
 				<path>product\emiBean.java</path>
+				<folder>product</folder>
+			</fileitem>
+			<fileitem>
+				<path>product\meltingBean.java</path>
 				<folder>product</folder>
 			</fileitem>
 			<fileitem>

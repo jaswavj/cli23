@@ -33,6 +33,16 @@ try {
         return;
     }
 
+    if ("close".equalsIgnoreCase(mode)) {
+        int emiCustomerId = 0;
+        try { emiCustomerId = Integer.parseInt(request.getParameter("emiCustomerId")); } catch (Exception ex) { }
+        emi.closeEmiCustomer(emiCustomerId, uid.intValue());
+        resp.put("success", true);
+        resp.put("message", "EMI closed successfully");
+        out.print(resp.toString());
+        return;
+    }
+
     if ("schedule".equalsIgnoreCase(mode)) {
         int emiCustomerId = 0;
         try { emiCustomerId = Integer.parseInt(request.getParameter("emiCustomerId")); } catch (Exception ex) { }
@@ -75,10 +85,12 @@ try {
             item.put("phoneNumber", row.elementAt(2).toString());
             item.put("totalAmount", row.elementAt(3).toString());
             item.put("emiType", row.elementAt(4).toString());
-            item.put("emiAmount", row.elementAt(5).toString());
-            item.put("emiMonths", row.elementAt(6).toString());
-            item.put("paidCount", row.elementAt(7).toString());
-            item.put("completedDate", row.elementAt(8).toString());
+            item.put("deptType", row.elementAt(5).toString());
+            item.put("emiAmount", row.elementAt(6).toString());
+            item.put("interestPerMonth", row.elementAt(7).toString());
+            item.put("emiMonths", row.elementAt(8).toString());
+            item.put("paidCount", row.elementAt(9).toString());
+            item.put("completedDate", row.elementAt(10).toString());
             rows.add(item);
         }
     } else {
@@ -91,13 +103,15 @@ try {
             item.put("phoneNumber", row.elementAt(2).toString());
             item.put("totalAmount", row.elementAt(3).toString());
             item.put("emiType", row.elementAt(4).toString());
-            item.put("emiAmount", row.elementAt(5).toString());
-            item.put("emiMonths", row.elementAt(6).toString());
-            item.put("pendingCount", row.elementAt(7).toString());
-            item.put("paidCount", row.elementAt(8).toString());
-            item.put("nextDueDate", row.elementAt(9).toString());
-            item.put("nextInstallmentId", row.elementAt(10).toString());
-            item.put("nextInstallmentNo", row.elementAt(11).toString());
+            item.put("deptType", row.elementAt(5).toString());
+            item.put("emiAmount", row.elementAt(6).toString());
+            item.put("interestPerMonth", row.elementAt(7).toString());
+            item.put("emiMonths", row.elementAt(8).toString());
+            item.put("pendingCount", row.elementAt(9).toString());
+            item.put("paidCount", row.elementAt(10).toString());
+            item.put("nextDueDate", row.elementAt(11).toString());
+            item.put("nextInstallmentId", row.elementAt(12).toString());
+            item.put("nextInstallmentNo", row.elementAt(13).toString());
             rows.add(item);
         }
     }
@@ -109,7 +123,9 @@ try {
     out.print(resp.toString());
 } catch (Exception e) {
     resp.put("success", false);
-    String prefix = "pay".equalsIgnoreCase(mode) ? "Unable to pay EMI: " : "Unable to load EMI: ";
+    String prefix = "pay".equalsIgnoreCase(mode) ? "Unable to pay EMI: "
+        : "close".equalsIgnoreCase(mode) ? "Unable to close EMI: "
+        : "Unable to load EMI: ";
     resp.put("message", prefix + e.getMessage());
     out.print(resp.toString());
 }

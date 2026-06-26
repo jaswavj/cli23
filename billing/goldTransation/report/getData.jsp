@@ -32,6 +32,7 @@ if (mode == null || mode.trim().isEmpty()) {
 }
 
 boolean needsDate = !("summary_cards".equalsIgnoreCase(mode)
+    || "unbilled_orders".equalsIgnoreCase(mode)
     || "credit_all".equalsIgnoreCase(mode)
     || "credit_explain".equalsIgnoreCase(mode)
     || "credit_settle".equalsIgnoreCase(mode)
@@ -67,17 +68,65 @@ try {
         double currentStock = 0;
         double totalCredit = 0;
         double customerDue = 0;
+        int unbilledPurchaseCount = 0;
+        int unbilledSaleCount = 0;
+        double unbilledPurchaseQty = 0;
+        double unbilledSaleQty = 0;
         if (s != null && s.size() >= 3) {
             try { currentStock = Double.parseDouble(String.valueOf(s.elementAt(0))); } catch (Exception ex) { }
             try { totalCredit = Double.parseDouble(String.valueOf(s.elementAt(1))); } catch (Exception ex) { }
             try { customerDue = Double.parseDouble(String.valueOf(s.elementAt(2))); } catch (Exception ex) { }
+        }
+        if (s != null && s.size() >= 7) {
+            try { unbilledPurchaseCount = Integer.parseInt(String.valueOf(s.elementAt(3))); } catch (Exception ex) { }
+            try { unbilledSaleCount = Integer.parseInt(String.valueOf(s.elementAt(4))); } catch (Exception ex) { }
+            try { unbilledPurchaseQty = Double.parseDouble(String.valueOf(s.elementAt(5))); } catch (Exception ex) { }
+            try { unbilledSaleQty = Double.parseDouble(String.valueOf(s.elementAt(6))); } catch (Exception ex) { }
         }
 
         JSONObject cards = new JSONObject();
         cards.put("currentStockTM", currentStock);
         cards.put("totalCredit", totalCredit);
         cards.put("customerDue", customerDue);
+        cards.put("unbilledPurchaseCount", Double.valueOf(unbilledPurchaseCount));
+        cards.put("unbilledSaleCount", Double.valueOf(unbilledSaleCount));
+        cards.put("unbilledPurchaseQty", unbilledPurchaseQty);
+        cards.put("unbilledSaleQty", unbilledSaleQty);
         resp.put("cards", cards);
+    } else if ("unbilled_orders".equalsIgnoreCase(mode)) {
+        Vector details = goldBean.getUnbilledGoldOrderDetails();
+        JSONArray purchaseRows = new JSONArray();
+        JSONArray saleRows = new JSONArray();
+
+        if (details != null && details.size() >= 1) {
+            Vector purchaseList = (Vector) details.elementAt(0);
+            for (int i = 0; i < purchaseList.size(); i++) {
+                Vector row = (Vector) purchaseList.get(i);
+                JSONObject item = new JSONObject();
+                item.put("orderId", row.elementAt(0).toString());
+                item.put("customerId", row.elementAt(1).toString());
+                item.put("customerName", row.elementAt(2).toString());
+                item.put("qty", row.elementAt(3).toString());
+                item.put("orderDate", row.elementAt(4).toString());
+                purchaseRows.add(item);
+            }
+        }
+        if (details != null && details.size() >= 2) {
+            Vector saleList = (Vector) details.elementAt(1);
+            for (int i = 0; i < saleList.size(); i++) {
+                Vector row = (Vector) saleList.get(i);
+                JSONObject item = new JSONObject();
+                item.put("orderId", row.elementAt(0).toString());
+                item.put("customerId", row.elementAt(1).toString());
+                item.put("customerName", row.elementAt(2).toString());
+                item.put("qty", row.elementAt(3).toString());
+                item.put("orderDate", row.elementAt(4).toString());
+                saleRows.add(item);
+            }
+        }
+
+        resp.put("purchaseRows", purchaseRows);
+        resp.put("saleRows", saleRows);
     } else if ("transaction".equalsIgnoreCase(mode)) {
         String sql =
             "SELECT c.id AS customer_id, c.name AS customer_name, " +
@@ -424,8 +473,8 @@ try {
             JSONObject row = new JSONObject();
             double creditAmount = rs.getDouble("credit_amount");
             row.put("customerId", rs.getInt("customer_id"));
-            row.put("customerName", rs.getString("customer_name"));
-            row.put("phone", rs.getString("phone_number"));
+            row.put("customerName", rs.getString("customer_name") == null ? "" : rs.getString("customer_name"));
+            row.put("phone", rs.getString("phone_number") == null ? "" : rs.getString("phone_number"));
             row.put("creditAmount", creditAmount);
             rows.add(row);
             sumCreditAmount += creditAmount;
@@ -921,7 +970,8 @@ try {
     resp.put("count", rows.size());
 
     out.print(resp.toString());
-} catch (Exception e) {
+} catch (Throwable e) {
+    e.printStackTrace();
     resp.put("success", false);
     String errPrefix = "Unable to load report: ";
     if ("save_opening_balance".equalsIgnoreCase(mode)) {
@@ -931,7 +981,11 @@ try {
     } else if ("credit_settle".equalsIgnoreCase(mode)) {
         errPrefix = "Unable to settle credit: ";
     }
-    resp.put("message", errPrefix + e.getMessage());
+    String errMsg = e.getMessage();
+    if (errMsg == null || errMsg.trim().length() == 0) {
+        errMsg = e.getClass().getSimpleName();
+    }
+    resp.put("message", errPrefix + errMsg);
     out.print(resp.toString());
 } finally {
     if (rs != null) try { rs.close(); } catch (Exception e) {}

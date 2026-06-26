@@ -61,7 +61,7 @@ String type = request.getParameter("type");
                                         String typeName = expType.elementAt(0).toString();
                                         String typeId = expType.elementAt(1).toString();
                                 %>
-                                    <option value="<%=typeId%>"><%=typeName%></option>
+                                    <option value="<%=typeId%>"<%= "1".equals(typeId) ? " selected" : "" %>><%=typeName%></option>
                                 <%
                                     }
                                 } catch (Exception e) {
