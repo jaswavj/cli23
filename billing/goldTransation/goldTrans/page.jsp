@@ -805,10 +805,11 @@
 
     function getSelectedOrderQty(orderType) {
         var sum = 0;
-        customerOrders.forEach(function(order) {
-            if (selectedOrderMap[order.orderId] && String(order.type) === String(orderType)) {
-                sum += parseNumber(order.qty);
+        el.itemsBody.querySelectorAll("tr[data-order-id]").forEach(function(tr) {
+            if (String(tr.dataset.orderType || "") !== String(orderType)) {
+                return;
             }
+            sum += parseNumber(tr.querySelector(".gt-item-qty").value);
         });
         return sum;
     }
@@ -906,10 +907,13 @@
                 row.querySelector(".gt-item-rate").value = "";
                 row.querySelector(".gt-row-total").textContent = "0.00";
                 row.removeAttribute("data-order-id");
+                row.removeAttribute("data-order-type");
+                row.removeAttribute("data-order-qty");
                 row.classList.remove("gt-order-row");
                 var qtyInput = row.querySelector(".gt-item-qty");
                 if (qtyInput) {
                     qtyInput.readOnly = false;
+                    qtyInput.removeAttribute("max");
                     qtyInput.classList.remove("gt-input-readonly");
                 }
             } else {
@@ -927,6 +931,7 @@
 
         var row = createRow({
             orderId: order.orderId,
+            type: order.type,
             qty: order.qty,
             label: "TM Order #" + order.orderId
         });
@@ -1045,11 +1050,12 @@
 
         if (orderMeta && orderMeta.orderId) {
             tr.dataset.orderId = String(orderMeta.orderId);
+            tr.dataset.orderType = String(orderMeta.type || "");
+            tr.dataset.orderQty = weight(orderMeta.qty || 0);
             tr.classList.add("gt-order-row");
             tr.querySelector(".gt-item-particular").value = orderMeta.label || ("TM Order #" + orderMeta.orderId);
             tr.querySelector(".gt-item-qty").value = weight(orderMeta.qty || 0);
-            tr.querySelector(".gt-item-qty").readOnly = true;
-            tr.querySelector(".gt-item-qty").classList.add("gt-input-readonly");
+            tr.querySelector(".gt-item-qty").setAttribute("max", weight(orderMeta.qty || 0));
         }
 
         var qtyInput = tr.querySelector(".gt-item-qty");
@@ -1057,6 +1063,19 @@
         var delBtn = tr.querySelector(".gt-row-delete");
 
         function calcRow() {
+            if (tr.dataset.orderId) {
+                var maxQty = parseNumber(tr.dataset.orderQty);
+                var currentQty = parseNumber(qtyInput.value);
+                if (currentQty > maxQty) {
+                    qtyInput.value = weight(maxQty);
+                    Swal.fire({
+                        icon: "warning",
+                        title: "TM Qty Limit",
+                        text: "Billed qty cannot exceed selected TM order qty.",
+                        confirmButtonColor: "#1f5a58"
+                    });
+                }
+            }
             var total = parseNumber(qtyInput.value) * parseNumber(rateInput.value);
             tr.querySelector(".gt-row-total").textContent = money(total);
             refreshTotals();
@@ -1081,10 +1100,13 @@
             if (el.itemsBody.querySelectorAll("tr").length <= 1) {
                 if (tr.dataset.orderId) {
                     tr.removeAttribute("data-order-id");
+                    tr.removeAttribute("data-order-type");
+                    tr.removeAttribute("data-order-qty");
                     tr.classList.remove("gt-order-row");
                     tr.querySelector(".gt-item-particular").value = "";
                     qtyInput.value = "";
                     qtyInput.readOnly = false;
+                    qtyInput.removeAttribute("max");
                     qtyInput.classList.remove("gt-input-readonly");
                     rateInput.value = "";
                     tr.querySelector(".gt-row-total").textContent = "0.00";
@@ -1363,6 +1385,14 @@
                     rate.classList.add("is-invalid-gt");
                     valid = false;
                 }
+
+                if (tr.dataset.orderId) {
+                    var maxOrderQty = parseNumber(tr.dataset.orderQty);
+                    if (parseNumber(qty.value) > maxOrderQty) {
+                        qty.classList.add("is-invalid-gt");
+                        valid = false;
+                    }
+                }
             }
         });
 
@@ -1404,6 +1434,7 @@
 
     function buildSavePayload() {
         var items = [];
+        var orderQtyMap = {};
         el.itemsBody.querySelectorAll("tr").forEach(function(tr) {
             var particular = tr.querySelector(".gt-item-particular").value.trim();
             var qty = parseNumber(tr.querySelector(".gt-item-qty").value);
@@ -1416,6 +1447,10 @@
                     rate: rate,
                     total: total
                 });
+            }
+
+            if (tr.dataset.orderId) {
+                orderQtyMap[String(tr.dataset.orderId)] = qty;
             }
         });
 
@@ -1453,9 +1488,7 @@
         payload.append("balance", money(el.balanceAmount.value));
         payload.append("items", JSON.stringify(items));
         payload.append("payments", JSON.stringify(payments));
-        payload.append("orderIds", JSON.stringify(getSelectedOrderIds().map(function(id) {
-            return parseInt(id, 10);
-        })));
+        payload.append("orderQtyMap", JSON.stringify(orderQtyMap));
         return payload;
     }
 

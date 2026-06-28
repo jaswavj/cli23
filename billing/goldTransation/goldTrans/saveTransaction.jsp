@@ -51,12 +51,17 @@
             payments.addElement(row);
         }
 
-        Vector orderIds = new Vector();
-        String orderIdsRaw = request.getParameter("orderIds");
-        if (orderIdsRaw != null && orderIdsRaw.trim().length() > 0) {
-            JSONArray jOrderIds = new JSONArray(orderIdsRaw);
-            for (int i = 0; i < jOrderIds.length(); i++) {
-                orderIds.addElement(String.valueOf(jOrderIds.getInt(i)));
+        Vector orderQtyRows = new Vector();
+        String orderQtyMapRaw = request.getParameter("orderQtyMap");
+        if (orderQtyMapRaw != null && orderQtyMapRaw.trim().length() > 0) {
+            JSONObject orderQtyMap = new JSONObject(orderQtyMapRaw);
+            Iterator keys = orderQtyMap.keys();
+            while (keys.hasNext()) {
+                String key = String.valueOf(keys.next());
+                Vector orderQtyRow = new Vector();
+                orderQtyRow.addElement(key);
+                orderQtyRow.addElement(String.valueOf(orderQtyMap.optDouble(key, 0.0)));
+                orderQtyRows.addElement(orderQtyRow);
             }
         }
 
@@ -72,7 +77,7 @@
             isPurchase,
             items,
             payments,
-            orderIds
+            orderQtyRows
         );
 
         double currentStock = goldBean.getGoldStockByProductId(1);

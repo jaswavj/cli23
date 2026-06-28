@@ -1,6 +1,7 @@
 package gold;
 
 import java.sql.*;
+import java.util.HashSet;
 import java.util.Vector;
 
 public class goldBillingBean {
@@ -521,7 +522,7 @@ public class goldBillingBean {
             boolean isPurchase,
             Vector items,
             Vector payments,
-            Vector orderIds) throws Exception {
+            Vector orderQtyRows) throws Exception {
 
         Connection con = null;
         PreparedStatement psMaster = null;
@@ -548,11 +549,11 @@ public class goldBillingBean {
             }
 
             double orderQty = 0.0;
-            if (orderIds != null && orderIds.size() > 0) {
+            if (orderQtyRows != null && orderQtyRows.size() > 0) {
                 if (customerId <= 0) {
                     throw new Exception("Select customer to bill TM orders");
                 }
-                orderQty = validateGoldOrdersForBill(con, orderIds, customerId, isSale, isPurchase);
+                orderQty = validateGoldOrdersForBill(con, orderQtyRows, customerId, isSale, isPurchase);
             }
 
             double nonOrderQty = totalQty - orderQty;
@@ -774,7 +775,7 @@ public class goldBillingBean {
                 }
             }
 
-            applyGoldOrdersOnBill(con, billId, customerId, isSale, isPurchase, orderIds);
+            applyGoldOrdersOnBill(con, billId, customerId, isSale, isPurchase, orderQtyRows);
 
             // 7) Insert gold transaction ledger summary row
             psTxnLedger = con.prepareStatement(
@@ -2381,30 +2382,39 @@ public class goldBillingBean {
 
     private double validateGoldOrdersForBill(
             Connection con,
-            Vector orderIds,
+            Vector orderQtyRows,
             int customerId,
             boolean isSale,
             boolean isPurchase) throws Exception {
 
-        if (orderIds == null || orderIds.size() == 0) {
+        if (orderQtyRows == null || orderQtyRows.size() == 0) {
             return 0.0;
         }
 
         double totalOrderQty = 0.0;
+        HashSet seenOrderIds = new HashSet();
         PreparedStatement ps = null;
         ResultSet rs = null;
 
         try {
-            for (int i = 0; i < orderIds.size(); i++) {
+            for (int i = 0; i < orderQtyRows.size(); i++) {
                 int orderId = 0;
+                double billedQty = 0.0;
                 try {
-                    orderId = Integer.parseInt(String.valueOf(orderIds.elementAt(i)));
+                    Vector row = (Vector) orderQtyRows.elementAt(i);
+                    orderId = Integer.parseInt(String.valueOf(row.elementAt(0)));
+                    billedQty = parseD(row.elementAt(1));
                 } catch (Exception ex) {
                     throw new Exception("Invalid TM order id");
                 }
                 if (orderId <= 0) {
                     continue;
                 }
+
+                if (seenOrderIds.contains(String.valueOf(orderId))) {
+                    throw new Exception("Duplicate TM Order #" + orderId + " selected");
+                }
+                seenOrderIds.add(String.valueOf(orderId));
 
                 ps = con.prepareStatement(
                     "SELECT id, customer_id, qty, type, is_billed, is_cancelled " +
@@ -2432,7 +2442,15 @@ public class goldBillingBean {
                     throw new Exception("TM Order #" + orderId + " is not a sale order");
                 }
 
-                totalOrderQty += rs.getDouble("qty");
+                double remainingQty = rs.getDouble("qty");
+                if (billedQty <= 0) {
+                    throw new Exception("Enter billed qty for TM Order #" + orderId);
+                }
+                if (billedQty > remainingQty + 0.0001) {
+                    throw new Exception("TM Order #" + orderId + " billed qty exceeds remaining qty");
+                }
+
+                totalOrderQty += billedQty;
                 close(rs, ps, null);
                 rs = null;
                 ps = null;
@@ -2449,9 +2467,9 @@ public class goldBillingBean {
             int customerId,
             boolean isSale,
             boolean isPurchase,
-            Vector orderIds) throws Exception {
+            Vector orderQtyRows) throws Exception {
 
-        if (orderIds == null || orderIds.size() == 0) {
+        if (orderQtyRows == null || orderQtyRows.size() == 0) {
             return;
         }
 
@@ -2460,10 +2478,13 @@ public class goldBillingBean {
         ResultSet rs = null;
 
         try {
-            for (int i = 0; i < orderIds.size(); i++) {
+            for (int i = 0; i < orderQtyRows.size(); i++) {
                 int orderId = 0;
+                double billedQty = 0.0;
                 try {
-                    orderId = Integer.parseInt(String.valueOf(orderIds.elementAt(i)));
+                    Vector row = (Vector) orderQtyRows.elementAt(i);
+                    orderId = Integer.parseInt(String.valueOf(row.elementAt(0)));
+                    billedQty = parseD(row.elementAt(1));
                 } catch (Exception ex) {
                     throw new Exception("Invalid TM order id");
                 }
@@ -2498,15 +2519,31 @@ public class goldBillingBean {
                     throw new Exception("TM Order #" + orderId + " is not a sale order");
                 }
 
+                if (billedQty <= 0) {
+                    throw new Exception("Enter billed qty for TM Order #" + orderId);
+                }
+                if (billedQty > qty + 0.0001) {
+                    throw new Exception("TM Order #" + orderId + " billed qty exceeds remaining qty");
+                }
+                double remainingQty = qty - billedQty;
+
                 close(rs, ps, null);
                 rs = null;
                 ps = null;
 
-                ps = con.prepareStatement(
-                    "UPDATE gold_order SET is_billed = 1, bill_id = ? " +
-                    "WHERE id = ? AND is_billed = 0 AND is_cancelled = 0");
-                ps.setInt(1, billId);
-                ps.setInt(2, orderId);
+                if (remainingQty <= 0.0001) {
+                    ps = con.prepareStatement(
+                        "UPDATE gold_order SET qty = 0, is_billed = 1, bill_id = ? " +
+                        "WHERE id = ? AND is_billed = 0 AND is_cancelled = 0");
+                    ps.setInt(1, billId);
+                    ps.setInt(2, orderId);
+                } else {
+                    ps = con.prepareStatement(
+                        "UPDATE gold_order SET qty = ?, is_billed = 0, bill_id = NULL " +
+                        "WHERE id = ? AND is_billed = 0 AND is_cancelled = 0");
+                    ps.setDouble(1, remainingQty);
+                    ps.setInt(2, orderId);
+                }
                 if (ps.executeUpdate() <= 0) {
                     throw new Exception("Failed to mark TM Order #" + orderId + " as billed");
                 }
@@ -2518,17 +2555,17 @@ public class goldBillingBean {
                         "UPDATE gold_stock SET stock = COALESCE(stock, 0) + ?, " +
                         "purchase_order_stock = COALESCE(purchase_order_stock, 0) - ? " +
                         "WHERE prods_id = ? AND COALESCE(purchase_order_stock, 0) >= ?");
-                    ps.setDouble(1, qty);
-                    ps.setDouble(2, qty);
+                    ps.setDouble(1, billedQty);
+                    ps.setDouble(2, billedQty);
                     ps.setInt(3, prodsId);
-                    ps.setDouble(4, qty);
+                    ps.setDouble(4, billedQty);
                 } else {
                     ps = con.prepareStatement(
                         "UPDATE gold_stock SET sale_order_stock = COALESCE(sale_order_stock, 0) - ? " +
                         "WHERE prods_id = ? AND COALESCE(sale_order_stock, 0) >= ?");
-                    ps.setDouble(1, qty);
+                    ps.setDouble(1, billedQty);
                     ps.setInt(2, prodsId);
-                    ps.setDouble(3, qty);
+                    ps.setDouble(3, billedQty);
                 }
 
                 if (ps.executeUpdate() <= 0) {
